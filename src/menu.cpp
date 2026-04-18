@@ -3,7 +3,7 @@
 void build_main_menu() {
     scr_menu = lv_obj_create(NULL);
     
-    // 使用与小说阅读器一致的深灰蓝背景
+    // 深灰蓝背景
     lv_obj_set_style_bg_color(scr_menu, lv_color_hex(0x2c3e50), 0);
 
     // 顶部标题
@@ -35,7 +35,6 @@ void build_main_menu() {
     auto create_menu_btn = [&](const char* txt, lv_event_cb_t cb) {
         lv_obj_t * btn = lv_btn_create(btn_container);
         lv_obj_set_size(btn, 210, 50);
-        // 使用与阅读器列表相同的按键颜色
         lv_obj_set_style_bg_color(btn, lv_color_hex(0x34495e), 0);
         lv_obj_set_style_radius(btn, 8, 0);       // 卡片圆角
         lv_obj_set_style_shadow_width(btn, 0, 0); // 扁平化

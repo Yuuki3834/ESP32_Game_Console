@@ -349,6 +349,17 @@ const StoryDef story_list[] = {
 const int story_count = sizeof(story_list)/sizeof(StoryDef);
 
 // =========================================================================
+// 辅助函数：统计背包中某物品的具体数量
+// =========================================================================
+static int get_item_count_in_bag(int item_id) {
+    int cnt = 0;
+    for(int i = 0; i < 50; i++) {
+        if(zh_player.inventory[i] == item_id) cnt++;
+    }
+    return cnt;
+}
+
+// =========================================================================
 // UI 界面实现 (任务大厅面板)
 // =========================================================================
 lv_obj_t* list_q_story = NULL;
@@ -357,36 +368,70 @@ lv_obj_t* lbl_q_info = NULL;
 int cur_view_id = -1;
 int cur_view_type = 0; // 0:主线剧情, 1:通缉令, 2:小委托
 
+// 【修复1】：新增指针重置函数，供 game_zongheng.cpp 在销毁场景时调用防崩溃
+void reset_quest_ui_pointers() {
+    list_q_story = NULL;
+    modal_q_detail = NULL;
+    lbl_q_info = NULL;
+}
+
 static void refresh_quest_detail() {
-    char buf[1024];
+    if (cur_view_id < 0) return; // 安全边界
+    static char buf[512];
+    
     if (cur_view_type == 0) {
+        if (cur_view_id >= story_count) return; // 【修复3】：防越界
         const StoryDef& sd = story_list[cur_view_id];
+        
         if (zh_player.story_status[cur_view_id] == 0) {
             snprintf(buf, sizeof(buf), "%s\n\n阶段数目: %d 步\n【事成奖励】\n%d 铜贝\n%d 声望\n额外物品: %s", 
                 sd.name, sd.step_count, sd.r_gold, sd.r_rep, sd.r_item > 0 ? get_item_by_id(sd.r_item).name : "无");
-        } else {
+        } 
+        else if (zh_player.story_status[cur_view_id] == 1) { 
             int step = zh_player.story_progress[cur_view_id];
+            if (step >= sd.step_count) return; 
+            
             const StoryStep& ss = sd.steps[step];
             int cur_val = 0;
             if (ss.type == SQ_KILL) cur_val = zh_player.story_counter[cur_view_id];
-            else if (ss.type == SQ_COLLECT) cur_val = has_item_in_bag(ss.target_id) ? 1 : 0;
+            else if (ss.type == SQ_COLLECT) cur_val = get_item_count_in_bag(ss.target_id); // 【修复2】：真实统计数量
             
             snprintf(buf, sizeof(buf), "【%s】 (第%d步)\n\n[%s]:\n \"%s\"\n\n目标: %s\n进度: %d / %d", 
                 sd.name, step+1, ss.npc_name, ss.dialog,
                 ss.type == SQ_KILL ? "前往野外猎杀指定怪物" : (ss.type == SQ_TALK ? "前往指定地点对话" : (ss.type == SQ_MOVE ? "移动到指定区域" : "去野外搜集或包里备好物品")),
-                cur_val, (ss.type == SQ_COLLECT && cur_val == 1) ? 1 : ss.count);
+                cur_val, ss.count); // 修正进度显示逻辑
+        } else {
+            snprintf(buf, sizeof(buf), "该剧情已完结。");
         }
-    } else if (cur_view_type == 1) {
+    } 
+    else if (cur_view_type == 1) {
+        if (cur_view_id >= bounty_count) return;
         const BountyDef& bd = bounty_list[cur_view_id];
-        snprintf(buf, sizeof(buf), "%s\n\n出没地：区域[%d]\n情报：%s\n\n【赏金】\n%d 铜贝, %d 声望", 
-            bd.target_name, bd.loc_id, bd.desc, bd.gold_reward, bd.rep_reward);
-    } else if (cur_view_type == 2) {
+        
+        // 查找真实地名
+        const char* loc_name = "未知秘境";
+        for(int i=0; i<zh_data_locations_count; i++) {
+            if(zh_data_locations[i].id == bd.loc_id) {
+                loc_name = zh_data_locations[i].name;
+                break;
+            }
+        }
+        
+        snprintf(buf, sizeof(buf), "%s\n\n出没地：【%s】\n情报：%s\n\n【赏金】\n%d 铜贝, %d 声望",
+            bd.target_name, loc_name, bd.desc, bd.gold_reward, bd.rep_reward);
+    }
+    else if (cur_view_type == 2) {
         int req_cnt = zh_player.quest_progress & 0xFFFF;
         int cur_cnt = (zh_player.quest_progress >> 16) & 0xFFFF;
+        
         if(zh_player.quest_id == 1) {
-            snprintf(buf, sizeof(buf), "【市民委托 - 讨伐】\n\n请前往野外，保护城镇。\n目标: 猎杀【%s】\n进度: %d / %d 只", zh_data_monsters[zh_player.quest_target].name, cur_cnt, req_cnt);
+            // 使用三元运算符安全取值，防止数组越界
+            const char* m_name = (zh_player.quest_target >= 0 && zh_player.quest_target < zh_data_monsters_count) ? zh_data_monsters[zh_player.quest_target].name : "未知怪物";
+            
+            snprintf(buf, sizeof(buf), "【市民委托 - 讨伐】\n\n请前往野外，保护城镇。\n目标: 猎杀【%s】\n进度: %d / %d 只", m_name, cur_cnt, req_cnt);
         } else if(zh_player.quest_id == 2) {
-            snprintf(buf, sizeof(buf), "【市民委托 - 搜集】\n\n请前往野外探索，搜集指定的物资。\n目标: 搜集【%s】\n完成后去找任何市民交付。\n进度: 需搜集 %d 份", get_item_by_id(zh_player.quest_target).name, req_cnt);
+            int cur_have = get_item_count_in_bag(zh_player.quest_target); // 【修复4】：补全当前拥有数量
+            snprintf(buf, sizeof(buf), "【市民委托 - 搜集】\n\n请前往野外探索，搜集指定的物资。\n目标: 搜集【%s】\n完成后去找任何市民交付。\n进度: %d / %d 份", get_item_by_id(zh_player.quest_target).name, cur_have, req_cnt);
         } else if(zh_player.quest_id == 3) {
             const char* t_name = "未知区域";
             for(int j=0; j<zh_data_locations_count; j++) if(zh_data_locations[j].id == zh_player.quest_target) t_name = zh_data_locations[j].name;
@@ -431,7 +476,29 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
                 zh_log("剧情已接取！跟随指引行动吧。");
             } else {
                 int step = zh_player.story_progress[cur_view_id];
+                
+                // 安全边界检查，防止读出越界随机内存
+                if (step >= story_list[cur_view_id].step_count) return;
+                
                 const StoryStep& ss = story_list[cur_view_id].steps[step];
+                
+                // ====== 【修复核心】背包预检必须在扣除物品之前进行 ======
+                bool is_final_step = (step == story_list[cur_view_id].step_count - 1);
+                if(is_final_step && story_list[cur_view_id].r_item > 0) {
+                    int empty_slots = 0;
+                    for(int k=0; k<50; k++) if(zh_player.inventory[k] == -1) empty_slots++;
+                    
+                    // 如果是收集任务，扣除任务物品后必然会腾出格子，所以预估空位要加上扣除的数量
+                    int expected_empty = empty_slots;
+                    if(ss.type == SQ_COLLECT) expected_empty += ss.count;
+                    
+                    if(expected_empty == 0) {
+                        zh_log("推进失败：背包已满！请先清理背包以接收任务奖励。");
+                        lv_obj_add_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN);
+                        return; // 提前拦截！绝不执行下方的扣除物品逻辑！
+                    }
+                }
+                // =========================================================
                 bool pass = false;
                 
                 if(ss.type == SQ_TALK) {
@@ -447,6 +514,7 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
                     else zh_log("推进失败：击杀数量不足，去野外找找看。");
                 }
                 else if(ss.type == SQ_COLLECT) {
+                    // 由于预检已过，现在可以安全扣除物品
                     if(remove_item_from_bag(ss.target_id, ss.count)) pass = true;
                     else zh_log("交付失败：背包中没有足够的指定物品！");
                 }
@@ -454,23 +522,29 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
                 if(pass) {
                     zh_player.story_progress[cur_view_id]++;
                     zh_player.story_counter[cur_view_id] = 0;
+                    
                     if(zh_player.story_progress[cur_view_id] >= story_list[cur_view_id].step_count) {
-                        zh_player.story_status[cur_view_id] = 2; // 已完成
+                        zh_player.story_status[cur_view_id] = 2; // 标记完成
                         zh_player.gold += story_list[cur_view_id].r_gold;
                         zh_player.reputation += story_list[cur_view_id].r_rep;
                         if(story_list[cur_view_id].r_item > 0) add_item_to_bag(story_list[cur_view_id].r_item);
-                        char w[128]; snprintf(w, sizeof(w), "【剧情完结】\n获得 %d 铜贝，声望暴涨！", story_list[cur_view_id].r_gold); zh_log(w);
+                        
+                        char w[128];
+                        snprintf(w, sizeof(w), "【剧情完结】\n获得 %d 铜贝，声望暴涨！", story_list[cur_view_id].r_gold);
+                        zh_log(w);
                     } else {
                         zh_log("【阶段达成】\n剧情已推进到下一阶段！");
                     }
                 }
             }
         } else if(cur_view_type == 2) {
-             zh_log("请通过与城内任意平民/商人对话，或直接前往指定地点交付委托！");
+            zh_log("请通过与城内任意平民/商人对话，或直接前往指定地点交付委托！");
         } else {
             zh_log("通缉令无法在此放弃，请直接前往指定地点击杀目标！");
         }
-        lv_obj_add_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN); refresh_quest_ui(); refresh_zongheng_ui();
+        lv_obj_add_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN);
+        refresh_quest_ui();
+        refresh_zongheng_ui();
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t* btn_c = lv_btn_create(modal_q_detail);
@@ -496,7 +570,12 @@ void refresh_quest_ui() {
         lv_obj_set_style_bg_color(b, lv_color_hex(0x16a085), 0);
         lv_obj_t * lbl = lv_obj_get_child(b, 1); 
         if(lbl) { lv_obj_add_style(lbl, &style_cn, 0); lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0); }
-        lv_obj_add_event_cb(b, [](lv_event_t *e){ cur_view_id=0; cur_view_type=2; refresh_quest_detail(); lv_obj_clear_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, NULL);
+        lv_obj_add_event_cb(b, [](lv_event_t *e){
+            cur_view_id=0;
+            cur_view_type=2;
+            refresh_quest_detail();
+            lv_obj_clear_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN);
+        }, LV_EVENT_CLICKED, NULL);
     }
 
     // 2. 进行中的主线
@@ -508,7 +587,12 @@ void refresh_quest_ui() {
             lv_obj_set_style_bg_color(b, lv_color_hex(0x2980b9), 0);
             lv_obj_t * lbl = lv_obj_get_child(b, 1); 
             if(lbl) { lv_obj_add_style(lbl, &style_cn, 0); lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFFFFF), 0); }
-            lv_obj_add_event_cb(b, [](lv_event_t *e){ cur_view_id=(int)(intptr_t)lv_event_get_user_data(e); cur_view_type=0; refresh_quest_detail(); lv_obj_clear_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+            lv_obj_add_event_cb(b, [](lv_event_t *e){
+                cur_view_id=(int)(intptr_t)lv_event_get_user_data(e);
+                cur_view_type=0;
+                refresh_quest_detail();
+                lv_obj_clear_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN);
+            }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
         }
     }
 
@@ -528,7 +612,7 @@ void refresh_quest_ui() {
     // 4. 通缉令
     lv_obj_t* l3 = lv_label_create(list_q_story); lv_obj_add_style(l3, &style_cn, 0);
     lv_label_set_text(l3, "\n* 悬赏Boss"); lv_obj_set_style_text_color(l3, lv_color_hex(0xE74C3C), 0);
-    if(zh_player.active_bounty_id != -1) {
+    if(zh_player.active_bounty_id >= 0 && zh_player.active_bounty_id < bounty_count) {
         lv_obj_t* b = lv_list_add_btn(list_q_story, LV_SYMBOL_WARNING, bounty_list[zh_player.active_bounty_id].target_name);
         lv_obj_set_style_bg_color(b, lv_color_hex(0x8B0000), 0);
         lv_obj_t * lbl = lv_obj_get_child(b, 1); 
@@ -545,13 +629,24 @@ void open_tavern_bounty_board() {
     int r_bounty = rand() % bounty_count;
     zh_player.active_bounty_id = r_bounty;
     char buf[256];
-    snprintf(buf, sizeof(buf), "【揭榜成功】\n你接下了针对【%s】的悬赏！\n老板：去区域[%d]找他，极其危险！", bounty_list[r_bounty].target_name, bounty_list[r_bounty].loc_id);
+    
+    // 查找真实地名
+    const char* loc_name = "未知秘境";
+    for(int i=0; i<zh_data_locations_count; i++) {
+        if(zh_data_locations[i].id == bounty_list[r_bounty].loc_id) {
+            loc_name = zh_data_locations[i].name;
+            break;
+        }
+    }
+    
+    snprintf(buf, sizeof(buf), "【揭榜成功】\n你接下了针对【%s】的悬赏！\n老板：去【%s】找他，极其危险！", bounty_list[r_bounty].target_name, loc_name);
     zh_log(buf);
     refresh_quest_ui();
 }
 
 int check_bounty_spawn(int loc_id) {
-    if (zh_player.active_bounty_id != -1) {
+    // 【修复3】安全检查，防止脏数据导致数组越界
+    if (zh_player.active_bounty_id >= 0 && zh_player.active_bounty_id < bounty_count) {
         if (bounty_list[zh_player.active_bounty_id].loc_id == loc_id) return bounty_list[zh_player.active_bounty_id].monster_id;
     }
     return -1;
@@ -573,14 +668,23 @@ void process_quest_kill(int monster_id) {
     for(int i=0; i<story_count; i++) {
         if(zh_player.story_status[i] == 1) {
             int step = zh_player.story_progress[i];
-            if(story_list[i].steps[step].type == SQ_KILL && story_list[i].steps[step].target_id == monster_id) {
-                zh_player.story_counter[i]++;
+            if (step < story_list[i].step_count) {
+                if(story_list[i].steps[step].type == SQ_KILL && story_list[i].steps[step].target_id == monster_id) {
+                    zh_player.story_counter[i]++;
+                    
+                    // 【新增】：杀够了直接通过 zh_log 提示玩家
+                    if (zh_player.story_counter[i] == story_list[i].steps[step].count) {
+                        char q_msg[128];
+                        snprintf(q_msg, sizeof(q_msg), "【剧情更新】\n《%s》阶段目标已击杀完毕！", story_list[i].name);
+                        zh_log(q_msg);
+                    }
+                }
             }
         }
     }
     
     // 检查通缉令
-    if(zh_player.active_bounty_id != -1) {
+    if(zh_player.active_bounty_id >= 0 && zh_player.active_bounty_id < bounty_count) {
         if(bounty_list[zh_player.active_bounty_id].monster_id == monster_id) {
             int rew_rep = bounty_list[zh_player.active_bounty_id].rep_reward;
             int rew_g = bounty_list[zh_player.active_bounty_id].gold_reward;

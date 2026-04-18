@@ -218,6 +218,7 @@ static lv_obj_t* lbl_player_status = NULL;
 
 static lv_obj_t* modal_combat_items = NULL;
 static lv_obj_t* list_combat_items = NULL;
+static lv_obj_t* combat_btn_grid = NULL;
 
 static int combat_monster_idx = -1; 
 static int current_monster_id = -1;
@@ -433,7 +434,6 @@ static void end_combat(bool player_won, bool fled) {
     process_quest_kill(m->id);
     char win_buf[512];
     snprintf(win_buf, sizeof(win_buf), "击杀【%s】！\n经验+%d, 铜贝+%d", m->name, final_exp, final_gold);
-    if (zh_player.quest_id == 1) zh_player.quest_progress++;
 
     // 战利品掉落判定
     if (rand() % 100 < 35) { 
@@ -589,13 +589,22 @@ static void process_player_action(int action_type, int active_skill_idx) {
         const ZH_Skill* sk = get_skill_by_id(sid);
         if (!sk) { add_combat_log("数据错乱：未知技能！"); return; }
         
-        int actual_mp_cost = get_actual_mp_cost(sk); bool overload = false;
+        int actual_mp_cost = get_actual_mp_cost(sk);
+        bool overload = false;
         for(int i=0; i<4; i++) if(zh_player.eq_passive_skills[i] == 253) overload = true;
 
         if (overload) {
-            if(zh_player.hp <= sk->mp_cost) { add_combat_log("生命值不足以过载释放！"); return; } zh_player.hp -= sk->mp_cost;
+            if(zh_player.hp <= actual_mp_cost) {
+                add_combat_log("生命值不足以过载释放！");
+                return;
+            }
+            zh_player.hp -= actual_mp_cost;
         } else {
-            if (zh_player.mp < actual_mp_cost) { add_combat_log("魔法(MP)不足，释放失败！"); return; } zh_player.mp -= actual_mp_cost;
+            if (zh_player.mp < actual_mp_cost) {
+                add_combat_log("魔法(MP)不足，释放失败！");
+                return;
+            }
+            zh_player.mp -= actual_mp_cost;
         }
 
         if (sk->type == SKILL_ACTIVE_PHYSICAL || sk->type == SKILL_ACTIVE_MAGIC) {
@@ -682,17 +691,17 @@ void start_turn_based_combat(int monster_idx) {
         lv_obj_set_width(lbl_combat_log, 210);
 
         // 3. 底部带滚动条的 15 格按钮网格
-        lv_obj_t* cont_btn = lv_obj_create(modal_combat);
-        lv_obj_set_size(cont_btn, 230, 110);
-        lv_obj_align(cont_btn, LV_ALIGN_BOTTOM_MID, 0, -5);
-        lv_obj_set_flex_flow(cont_btn, LV_FLEX_FLOW_ROW_WRAP);
-        lv_obj_set_style_bg_opa(cont_btn, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(cont_btn, 0, 0);
-        lv_obj_set_style_pad_all(cont_btn, 0, 0);
-        lv_obj_set_style_pad_row(cont_btn, 4, 0);
-        lv_obj_set_style_pad_column(cont_btn, 4, 0);
-        lv_obj_add_flag(cont_btn, LV_OBJ_FLAG_SCROLLABLE); 
-        lv_obj_set_scrollbar_mode(cont_btn, LV_SCROLLBAR_MODE_AUTO);
+        combat_btn_grid = lv_obj_create(modal_combat);
+        lv_obj_set_size(combat_btn_grid, 230, 110);
+        lv_obj_align(combat_btn_grid, LV_ALIGN_BOTTOM_MID, 0, -5);
+        lv_obj_set_flex_flow(combat_btn_grid, LV_FLEX_FLOW_ROW_WRAP);
+        lv_obj_set_style_bg_opa(combat_btn_grid, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(combat_btn_grid, 0, 0);
+        lv_obj_set_style_pad_all(combat_btn_grid, 0, 0);
+        lv_obj_set_style_pad_row(combat_btn_grid, 4, 0);
+        lv_obj_set_style_pad_column(combat_btn_grid, 4, 0);
+        lv_obj_add_flag(combat_btn_grid, LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_set_scrollbar_mode(combat_btn_grid, LV_SCROLLBAR_MODE_AUTO);
 
         auto create_grid_btn = [](lv_obj_t* p, int idx) {
             lv_obj_t* btn = lv_btn_create(p);
@@ -713,7 +722,7 @@ void start_turn_based_combat(int monster_idx) {
             return btn;
         };
 
-        for(int i=0; i<15; i++) create_grid_btn(cont_btn, i);
+        for(int i=0; i<15; i++) create_grid_btn(combat_btn_grid, i);
 
         // 4. 战斗专属弹窗物品栏
         modal_combat_items = lv_obj_create(modal_combat);
@@ -738,9 +747,8 @@ void start_turn_based_combat(int monster_idx) {
     char logb[128]; snprintf(logb, sizeof(logb), "野生的 Lv.%d [%s] 出现了！", m->level, m->name); add_combat_log(logb);
     
     // 重置 15 格按钮状态
-    lv_obj_t* cont_btn = lv_obj_get_child(modal_combat, 2);
     for(int i=0; i<15; i++) {
-        lv_obj_t* btn = lv_obj_get_child(cont_btn, i);
+        lv_obj_t* btn = lv_obj_get_child(combat_btn_grid, i);
         lv_obj_t* lbl = lv_obj_get_child(btn, 0);
         lv_obj_clear_state(btn, LV_STATE_DISABLED);
 
@@ -776,4 +784,5 @@ void reset_combat_ui_pointers() {
     lbl_player_status = NULL;
     modal_combat_items = NULL;
     list_combat_items = NULL;
+    combat_btn_grid = NULL;
 }

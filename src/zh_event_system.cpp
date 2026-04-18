@@ -3,11 +3,13 @@
 #include <stdio.h>
 #include <string.h>
 
-// 辅助函数：扣血但不致死（避免在跑图转场时引发状态机BUG）
-static void safe_hurt(int dmg, char* buf) {
+static void safe_hurt(int dmg, char* buf, size_t buf_size) {
     zh_player.hp -= dmg;
     if (zh_player.hp < 1) zh_player.hp = 1;
-    snprintf(buf + strlen(buf), 256 - strlen(buf), " (生命 -%d)", dmg);
+    size_t len = strlen(buf);
+    if (buf_size > len + 1) {
+        snprintf(buf + len, buf_size - len, " (生命 -%d)", dmg);
+    }
 }
 
 // ==================== 陆地探索随机事件 (50种) ====================
@@ -70,16 +72,16 @@ void trigger_random_land_event(char* current_log_buf, size_t buf_size) {
         case 29: zh_player.hp = zh_player.max_hp; snprintf(ev_buf, sizeof(ev_buf), "你在森林深处找到一个宁静的避风港，安稳地休息了一晚。"); break;
 
         // --- 生命损失与灾厄 ---
-        case 30: snprintf(ev_buf, sizeof(ev_buf), "你踩到了一根隐藏的尖刺，小腿被划破了！"); safe_hurt(30, ev_buf); break;
-        case 31: snprintf(ev_buf, sizeof(ev_buf), "一阵妖风袭来，你被吹倒在地，擦伤了脸颊！"); safe_hurt(20, ev_buf); break;
-        case 32: snprintf(ev_buf, sizeof(ev_buf), "你不小心被断裂的树枝绊倒，摔了个狗啃泥！"); safe_hurt(40, ev_buf); break;
-        case 33: snprintf(ev_buf, sizeof(ev_buf), "误食了有毒的浆果，肚子剧痛难忍..."); safe_hurt(25, ev_buf); break;
-        case 34: snprintf(ev_buf, sizeof(ev_buf), "你踏入了一片沼泽，深陷其中，费了九牛二虎之力才爬出。"); safe_hurt(50, ev_buf); break;
-        case 35: snprintf(ev_buf, sizeof(ev_buf), "一只巨型蜘蛛从树上落下，用蛛网缠住了你！"); safe_hurt(35, ev_buf); break;
-        case 36: snprintf(ev_buf, sizeof(ev_buf), "空气中弥漫着腐臭的气味，你吸入了毒气。"); safe_hurt(45, ev_buf); break;
-        case 37: snprintf(ev_buf, sizeof(ev_buf), "你在黑暗中看不清路，一头撞在岩壁上。"); safe_hurt(20, ev_buf); break;
-        case 38: snprintf(ev_buf, sizeof(ev_buf), "一群愤怒的野蜂将你团团围住！"); safe_hurt(15, ev_buf); break;
-        case 39: snprintf(ev_buf, sizeof(ev_buf), "山路崎岖，你脚下一滑，滚下了一个小坡！"); safe_hurt(60, ev_buf); break;
+        case 30: snprintf(ev_buf, sizeof(ev_buf), "你踩到了一根隐藏的尖刺，小腿被划破了！"); safe_hurt(30, ev_buf, sizeof(ev_buf)); break;
+        case 31: snprintf(ev_buf, sizeof(ev_buf), "一阵妖风袭来，你被吹倒在地，擦伤了脸颊！"); safe_hurt(20, ev_buf, sizeof(ev_buf)); break;
+        case 32: snprintf(ev_buf, sizeof(ev_buf), "你不小心被断裂的树枝绊倒，摔了个狗啃泥！"); safe_hurt(40, ev_buf, sizeof(ev_buf)); break;
+        case 33: snprintf(ev_buf, sizeof(ev_buf), "误食了有毒的浆果，肚子剧痛难忍..."); safe_hurt(25, ev_buf, sizeof(ev_buf)); break;
+        case 34: snprintf(ev_buf, sizeof(ev_buf), "你踏入了一片沼泽，深陷其中，费了九牛二虎之力才爬出。"); safe_hurt(50, ev_buf, sizeof(ev_buf)); break;
+        case 35: snprintf(ev_buf, sizeof(ev_buf), "一只巨型蜘蛛从树上落下，用蛛网缠住了你！"); safe_hurt(35, ev_buf, sizeof(ev_buf)); break;
+        case 36: snprintf(ev_buf, sizeof(ev_buf), "空气中弥漫着腐臭的气味，你吸入了毒气。"); safe_hurt(45, ev_buf, sizeof(ev_buf)); break;
+        case 37: snprintf(ev_buf, sizeof(ev_buf), "你在黑暗中看不清路，一头撞在岩壁上。"); safe_hurt(20, ev_buf, sizeof(ev_buf)); break;
+        case 38: snprintf(ev_buf, sizeof(ev_buf), "一群愤怒的野蜂将你团团围住！"); safe_hurt(15, ev_buf, sizeof(ev_buf)); break;
+        case 39: snprintf(ev_buf, sizeof(ev_buf), "山路崎岖，你脚下一滑，滚下了一个小坡！"); safe_hurt(60, ev_buf, sizeof(ev_buf)); break;
 
         // --- 物品掉落与特殊事件 ---
         case 40: {
@@ -119,13 +121,13 @@ void trigger_random_land_event(char* current_log_buf, size_t buf_size) {
         case 49: zh_player.level++; zh_player.max_hp+=30; zh_player.hp=zh_player.max_hp; zh_player.atk+=6; zh_player.def+=4; 
                  snprintf(ev_buf, sizeof(ev_buf), "【奇迹降临】你触摸了一块古老的石碑，碑文中的力量注入了你的身体！等级提升！"); break;
         case 50: if(zh_player.reputation > 200) { zh_player.gold += 800; snprintf(ev_buf, sizeof(ev_buf), "村民仰慕你的威名，自发为你筹集了 800 铜贝！"); } else snprintf(ev_buf, sizeof(ev_buf), "路过的村民看了你一眼，匆匆走开。"); break;
-        case 51: if(zh_player.crime_value > 100) { safe_hurt(60, ev_buf); snprintf(ev_buf, sizeof(ev_buf), "几个受害者的家属在暗巷用木棍袭击了你！"); } else snprintf(ev_buf, sizeof(ev_buf), "你在暗巷里发现了一只野猫。"); break;
+        case 51: if(zh_player.crime_value > 100) { safe_hurt(60, ev_buf, sizeof(ev_buf)); snprintf(ev_buf, sizeof(ev_buf), "几个受害者的家属在暗巷用木棍袭击了你！"); } else snprintf(ev_buf, sizeof(ev_buf), "你在暗巷里发现了一只野猫。"); break;
         case 52: if(zh_player.reputation > 300) { zh_player.hp = zh_player.max_hp; snprintf(ev_buf, sizeof(ev_buf), "当地名医听闻你的义举，免费为你治好了所有的伤！"); } else snprintf(ev_buf, sizeof(ev_buf), "路边有一株枯萎的草药。"); break;
         case 53: if(zh_player.crime_value > 200) { int loss = zh_player.gold * 0.2; zh_player.gold -= loss; snprintf(ev_buf, sizeof(ev_buf), "黑帮认为你捞过界了，强行收取了你 %d 铜贝的保护费！", loss); } else snprintf(ev_buf, sizeof(ev_buf), "你平安穿过了贫民窟。"); break;
         case 54: if(zh_player.reputation > 400) { zh_player.silver += 2; snprintf(ev_buf, sizeof(ev_buf), "商会为了结交你这位大英雄，赠送了 2 枚银贝！"); } else snprintf(ev_buf, sizeof(ev_buf), "商队的马车绝尘而去。"); break;
         case 55: if(zh_player.crime_value > 50) { zh_player.crime_value += 30; snprintf(ev_buf, sizeof(ev_buf), "你被通缉的画像贴满了大街小巷，罪恶值持续上升！"); } else snprintf(ev_buf, sizeof(ev_buf), "你看到布告栏上贴着别人的通缉令。"); break;
         case 56: if(zh_player.reputation > 100 && zh_player.crime_value > 0) { zh_player.crime_value = 0; snprintf(ev_buf, sizeof(ev_buf), "由于你最近的好名声，总督大赦了你以前的罪行！"); } else snprintf(ev_buf, sizeof(ev_buf), "今天的天气真不错。"); break;
-        case 57: if(zh_player.crime_value > 150) { safe_hurt(100, ev_buf); snprintf(ev_buf, sizeof(ev_buf), "狂热的赏金猎人设下陷阱，你九死一生才逃脱！"); } else snprintf(ev_buf, sizeof(ev_buf), "你避开了一个捕兽夹。"); break;
+        case 57: if(zh_player.crime_value > 150) { safe_hurt(100, ev_buf, sizeof(ev_buf)); snprintf(ev_buf, sizeof(ev_buf), "狂热的赏金猎人设下陷阱，你九死一生才逃脱！"); } else snprintf(ev_buf, sizeof(ev_buf), "你避开了一个捕兽夹。"); break;
         case 58: if(zh_player.reputation > 600) { zh_player.exp += 1000; snprintf(ev_buf, sizeof(ev_buf), "隐世高人听闻你的侠名，破例指点你一番！(经验大涨)"); } else snprintf(ev_buf, sizeof(ev_buf), "你在山顶吹了吹风。"); break;
         case 59: if(zh_player.crime_value > 400) { zh_player.gold = 0; zh_player.silver = 0; snprintf(ev_buf, sizeof(ev_buf), "【倾家荡产】官方抄了你的随身营地，你失去了所有金银！"); } else snprintf(ev_buf, sizeof(ev_buf), "巡逻兵向你点头致意。"); break;         
     }
@@ -180,7 +182,7 @@ void trigger_sailing_event(char* msg, size_t buf_size) {
         case 1:
             if(!immune_storm) {
                 snprintf(msg, buf_size, "【突发风暴】\n狂风大作，船只剧烈摇晃，桅杆断裂砸伤了你！");
-                safe_hurt(30, msg);
+                safe_hurt(30, msg, buf_size);
             } else {
                 if (nav != NULL) 
                     snprintf(msg, buf_size, "【规避风暴】\n航海长[%s]展现出惊人经验，舰队安全冲出风暴区！", nav->name);
@@ -216,7 +218,7 @@ void trigger_sailing_event(char* msg, size_t buf_size) {
                 snprintf(msg, buf_size, "【物资统筹】\n传奇航海长合理调配了果蔬物资，船员免受坏血病之苦！");
             } else {
                 snprintf(msg, buf_size, "【坏血病蔓延】\n船上缺乏新鲜蔬菜，你感觉身体极度虚弱。");
-                safe_hurt(25, msg);
+                safe_hurt(25, msg, buf_size);
             }
             break;
         case 6:
@@ -235,7 +237,7 @@ void trigger_sailing_event(char* msg, size_t buf_size) {
                 snprintf(msg, buf_size, "【海怪惊扰】\n深海触手刚刚浮现，就被传奇航海长超前的火炮威慑击退！");
             } else {
                 snprintf(msg, buf_size, "【海怪触手】\n深海中伸出巨大的触手拍击甲板，你被震飞受重伤！");
-                safe_hurt(60, msg);
+                safe_hurt(60, msg, buf_size);
             }
             break;
         case 9:
@@ -253,7 +255,7 @@ void trigger_sailing_event(char* msg, size_t buf_size) {
                 snprintf(msg, buf_size, "【规避漩涡】\n传奇航海长操舵如神，借着大漩涡的离心力完美加速脱险！");
             } else {
                 snprintf(msg, buf_size, "【遭遇大漩涡】\n船只差点被卷入海底深渊！拼死逃离时受了内伤。");
-                safe_hurt(50, msg);
+                safe_hurt(50, msg, buf_size);
             }
             break;
         case 12:

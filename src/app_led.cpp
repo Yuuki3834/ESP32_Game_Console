@@ -4,7 +4,6 @@
 #define LED_PIN 42
 #define NUM_PIXELS 1
 
-// UI 对象 (初始化为 NULL 防野指针)
 lv_obj_t * scr_led = NULL;
 lv_obj_t * sw_power = NULL;
 lv_obj_t * slider_r = NULL; lv_obj_t * ta_r = NULL;
@@ -16,14 +15,12 @@ lv_obj_t * slider_on_time = NULL; lv_obj_t * lbl_on_time = NULL;
 lv_obj_t * slider_off_time = NULL; lv_obj_t * lbl_off_time = NULL;
 lv_obj_t * kb_num = NULL; 
 
-// 【修复新增】：用于追踪开关状态的 LVGL 定时器
 static lv_timer_t * led_ui_timer = NULL;
 
-// 核心状态数据
-bool led_is_on = false;
-uint8_t led_r = 255, led_g = 255, led_b = 255;
-int led_mode = 0; // 0:常亮, 1:红色慢闪, 2:红蓝警灯, 3:白光SOS, 4:七彩交替, 5:自定义闪烁
-uint32_t led_auto_off_time = 0; 
+volatile bool led_is_on = false;
+volatile uint8_t led_r = 255, led_g = 255, led_b = 255;
+volatile int led_mode = 0;
+volatile uint32_t led_auto_off_time = 0;
 uint16_t custom_on_ms = 500, custom_off_ms = 500;
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
@@ -50,9 +47,11 @@ static void update_rgb_ui_from_vars() {
 void led_task(void *pvParameters) {
     pixels.begin();
     pixels.setBrightness(255);
-    pixels.show(); 
+    pixels.show();
 
-    bool last_led_state = false; 
+    bool last_led_state = false;
+    uint8_t last_r = 0, last_g = 0, last_b = 0;
+    bool needs_update = true;
 
     while(1) {
         uint32_t t = millis();
@@ -69,42 +68,51 @@ void led_task(void *pvParameters) {
                 last_led_state = false;
             }
         } else {
-            last_led_state = true;
+            if (!last_led_state) {
+                last_led_state = true;
+                needs_update = true; 
+            }
+            
             switch(led_mode) {
-                case 0: // 常亮
-                    pixels.setPixelColor(0, led_r, led_g, led_b);
+                case 0:
+                    if (led_r != last_r || led_g != last_g || led_b != last_b || needs_update) {
+                        pixels.setPixelColor(0, led_r, led_g, led_b);
+                        pixels.show();
+                        last_r = led_r; last_g = led_g; last_b = led_b;
+                        needs_update = false;
+                    }
                     break;
-                case 1: // 红色慢闪 (1秒亮 1秒灭)
+                case 1:
                     if ((t / 1000) % 2 == 0) pixels.setPixelColor(0, 255, 0, 0);
                     else pixels.clear();
                     break;
-                case 2: // 红蓝警灯 (爆闪效果)
+                case 2:
                     {
                         uint32_t pt = t % 800;
-                        if (pt < 100) pixels.setPixelColor(0, 255,0,0);
+                        if (pt < 100) pixels.setPixelColor(0, 255, 0, 0);
                         else if (pt < 150) pixels.clear();
-                        else if (pt < 250) pixels.setPixelColor(0, 255,0,0);
+                        else if (pt < 250) pixels.setPixelColor(0, 255, 0, 0);
                         else if (pt < 400) pixels.clear();
-                        else if (pt < 500) pixels.setPixelColor(0, 0,0,255);
+                        else if (pt < 500) pixels.setPixelColor(0, 0, 0, 255);
                         else if (pt < 550) pixels.clear();
-                        else if (pt < 650) pixels.setPixelColor(0, 0,0,255);
+                        else if (pt < 650) pixels.setPixelColor(0, 0, 0, 255);
                         else pixels.clear();
                     }
                     break;
-                case 3: // 白光 SOS
+                case 3:
                     {
                         const char* sos = "1010100011101110111000101010000000";
                         if (sos[(t / 100) % 34] == '1') pixels.setPixelColor(0, 255, 255, 255);
                         else pixels.clear();
                     }
                     break;
-                case 4: // 七彩交替
+                case 4:
                     {
                         uint32_t c[] = {0xFF0000, 0xFF7F00, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0x8B00FF};
                         pixels.setPixelColor(0, c[(t / 500) % 7]);
                     }
                     break;
-                case 5: // 自定义闪烁
+                case 5:
                     {
                         uint32_t cycle = custom_on_ms + custom_off_ms;
                         if (cycle > 0) {
@@ -116,11 +124,10 @@ void led_task(void *pvParameters) {
             }
             pixels.show();
         }
-        vTaskDelay(pdMS_TO_TICKS(20)); // 50帧刷新率
+        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 
-// 控件事件组
 static void slider_event_cb(lv_event_t * e) {
     if (!slider_r || !slider_g || !slider_b) return;
     led_r = lv_slider_get_value(slider_r);
@@ -137,7 +144,6 @@ static void ta_event_cb(lv_event_t * e) {
     update_rgb_ui_from_vars();
 }
 
-// 键盘弹出逻辑
 static void ta_focus_cb(lv_event_t * e) {
     if (!kb_num) return; 
     lv_obj_t * ta = lv_event_get_target(e);
@@ -151,7 +157,6 @@ static void ta_focus_cb(lv_event_t * e) {
     }
 }
 
-// 辅助创建 RGB 调节行
 void create_rgb_row(lv_obj_t * parent, const char * name, lv_color_t color, lv_obj_t ** sld, lv_obj_t ** ta) {
     lv_obj_t * row = lv_obj_create(parent);
     lv_obj_set_size(row, 210, 45);
@@ -185,12 +190,10 @@ void create_rgb_row(lv_obj_t * parent, const char * name, lv_color_t color, lv_o
 }
 
 void build_led_scene() {
-    // 全局硬件控制任务只需创建一次
     if (ledTaskHandle == NULL) {
         xTaskCreatePinnedToCore(led_task, "LEDTask", 4096, NULL, 1, &ledTaskHandle, 1);
     }
 
-    // 【修复新增】：清理旧场景与解绑指针，防止内存泄漏和野指针崩溃
     if (scr_led != NULL) { 
         lv_obj_del(scr_led); 
         scr_led = NULL; 
@@ -199,7 +202,6 @@ void build_led_scene() {
         slider_on_time = NULL; lbl_on_time = NULL; slider_off_time = NULL; lbl_off_time = NULL;
         kb_num = NULL; 
     }
-    // 【修复新增】：删除旧的定时器，防止重复执行挂掉
     if (led_ui_timer != NULL) {
         lv_timer_del(led_ui_timer);
         led_ui_timer = NULL;
@@ -208,14 +210,12 @@ void build_led_scene() {
     scr_led = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_led, lv_color_hex(0x2c3e50), 0);
 
-    // ================= 全局数字键盘 =================
     kb_num = lv_keyboard_create(scr_led);
     lv_keyboard_set_mode(kb_num, LV_KEYBOARD_MODE_NUMBER);
     lv_obj_set_size(kb_num, 240, 120);
     lv_obj_align(kb_num, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_add_flag(kb_num, LV_OBJ_FLAG_HIDDEN); 
 
-    // ================= 顶部标题栏 =================
     lv_obj_t * title = lv_label_create(scr_led);
     lv_obj_add_style(title, &style_cn, 0);
     lv_label_set_text(title, LV_SYMBOL_TINT " RGB 氛围灯");
@@ -233,7 +233,6 @@ void build_led_scene() {
         lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
     }, LV_EVENT_CLICKED, NULL);
 
-    // ================= 主滚动区 =================
     lv_obj_t * cont = lv_obj_create(scr_led);
     lv_obj_set_size(cont, 240, 265);
     lv_obj_align(cont, LV_ALIGN_BOTTOM_MID, 0, 0);
@@ -242,7 +241,6 @@ void build_led_scene() {
     lv_obj_set_flex_flow(cont, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(cont, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-    // 1. 开关与定时
     lv_obj_t * row_top = lv_obj_create(cont);
     lv_obj_set_size(row_top, 220, 50);
     lv_obj_set_style_bg_color(row_top, lv_color_hex(0x34495e), 0);
@@ -256,7 +254,6 @@ void build_led_scene() {
         led_is_on = lv_obj_has_state(sw_power, LV_STATE_CHECKED);
     }, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // 【修复新增】：将定时器挂在全局变量，方便场景销毁时清理
     led_ui_timer = lv_timer_create([](lv_timer_t *t) {
         if(sw_power && !led_is_on && lv_obj_has_state(sw_power, LV_STATE_CHECKED)) {
             lv_obj_clear_state(sw_power, LV_STATE_CHECKED);
@@ -279,7 +276,6 @@ void build_led_scene() {
         else led_auto_off_time = millis() + (min_opts[idx] * 60000);
     }, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // 2. RGB 滑块和输入框
     lv_obj_t * panel_rgb = lv_obj_create(cont);
     lv_obj_set_size(panel_rgb, 220, 150); 
     lv_obj_set_style_pad_all(panel_rgb, 5, 0); 
@@ -296,7 +292,6 @@ void build_led_scene() {
     
     update_rgb_ui_from_vars();
 
-    // 3. 8色常亮预设快捷按钮
     lv_obj_t * panel_colors = lv_obj_create(cont);
     lv_obj_set_size(panel_colors, 220, 50);
     lv_obj_set_style_bg_color(panel_colors, lv_color_hex(0x34495e), 0);
@@ -320,7 +315,6 @@ void build_led_scene() {
         }, LV_EVENT_CLICKED, (void*)(uintptr_t)preset_c[i]);
     }
 
-    // 4. 特效模式
     dd_mode = lv_dropdown_create(cont);
     lv_obj_set_width(dd_mode, 220);
     lv_obj_add_style(dd_mode, &style_cn, 0);
@@ -333,7 +327,6 @@ void build_led_scene() {
         led_mode = lv_dropdown_get_selected(dd_mode);
     }, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // 5. 自定义闪烁调节面板
     lv_obj_t * panel_custom = lv_obj_create(cont);
     lv_obj_set_size(panel_custom, 220, 90);
     lv_obj_set_style_bg_color(panel_custom, lv_color_hex(0x34495e), 0);

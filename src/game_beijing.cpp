@@ -1,18 +1,16 @@
 ﻿#include "global.h"
 #include <stdlib.h>
-#include <LittleFS.h> 
+#include <LittleFS.h>
 
 lv_obj_t * scr_beijing = NULL;
 
-// --- 游戏配置 ---
 #define MAX_DAYS 40
-#define NUM_ITEMS 30       // 商品数量
+#define NUM_ITEMS 30
 #define NUM_LOCATIONS 10
 
-// --- 数据结构 ---
 struct InventoryItem {
     int count;
-    int avg_buy_price; 
+    int avg_buy_price;
 };
 
 struct BJ_Item {
@@ -20,7 +18,7 @@ struct BJ_Item {
     int base_price;
     int volatility;
     int current_price;
-    int source_loc; 
+    int source_loc;
 };
 
 struct BJ_Player {
@@ -28,59 +26,54 @@ struct BJ_Player {
     long cash;
     long bank;
     long debt;
-    float debt_rate; 
+    float debt_rate;
     int health;
     int storage;
     int max_storage;
     int location;
     InventoryItem inventory[NUM_ITEMS];
-    char rumor[128]; 
+    char rumor[128];
 };
 
-// --- 游戏数据定义 ---
 BJ_Player bj;
 BJ_Item items[NUM_ITEMS] = {
-    // 全局商品 (source_loc = -1)
-    {"进口香烟", 150, 50, 0, -1}, 
+    {"进口香烟", 150, 50, 0, -1},
     {"盗版VCD", 30, 15, 0, -1},
-    {"水货手机", 1200, 400, 0, -1}, 
+    {"水货手机", 1200, 400, 0, -1},
     {"假冒化妆品", 400, 150, 0, -1},
-    {"走私汽车", 15000, 5000, 0, -1}, 
+    {"走私汽车", 15000, 5000, 0, -1},
     {"伪劣玩具", 80, 30, 0, -1},
     {"进口奶粉", 250, 80, 0, -1},
-    {"三株口服液", 500, 250, 0, -1},   
+    {"三株口服液", 500, 250, 0, -1},
     {"貂皮大衣", 4000, 1500, 0, -1},
     {"走私大彩电", 3000, 1000, 0, -1},
     {"认购证", 5000, 2000, 0, -1},
     {"猴年邮票", 8000, 3000, 0, -1},
-    {"二手BP机", 300, 100, 0, -1},     
+    {"二手BP机", 300, 100, 0, -1},
     {"山寨名表", 2000, 600, 0, -1},
     {"高档假酒", 1000, 400, 0, -1},
-    {"小霸王学习机", 150, 50, 0, -1},  
-    {"港台明星海报", 10, 5, 0, -1},    
-    {"健力宝饮料", 20, 8, 0, -1},      
-    {"俄罗斯套娃", 100, 40, 0, -1},    
-    {"奥运纪念章", 800, 300, 0, -1},   
-
-    // 专属地点特产 (必须在该地点才能进货，离开后别处不卖但可高价出售)
-    {"王府井丝绸", 500, 200, 0, 0},     
-    {"中关村盗版盘", 50, 20, 0, 1},     
-    {"西直门水管", 120, 40, 0, 2},      
-    {"秀水街A货包", 600, 250, 0, 3},    
-    {"复兴门打口磁带", 15, 5, 0, 4},    
-    {"北京站黄牛票", 200, 150, 0, 5},   
-    {"苹果园首钢废钢", 400, 100, 0, 6}, 
-    {"公主坟手机壳", 40, 15, 0, 7},     
-    {"积水潭旧医书", 80, 30, 0, 8},     
-    {"崇文门旧家具", 350, 150, 0, 9}    
+    {"小霸王学习机", 150, 50, 0, -1},
+    {"港台明星海报", 10, 5, 0, -1},
+    {"健力宝饮料", 20, 8, 0, -1},
+    {"俄罗斯套娃", 100, 40, 0, -1},
+    {"奥运纪念章", 800, 300, 0, -1},
+    {"王府井丝绸", 500, 200, 0, 0},
+    {"中关村盗版盘", 50, 20, 0, 1},
+    {"西直门水管", 120, 40, 0, 2},
+    {"秀水街A货包", 600, 250, 0, 3},
+    {"复兴门打口磁带", 15, 5, 0, 4},
+    {"北京站黄牛票", 200, 150, 0, 5},
+    {"苹果园首钢废钢", 400, 100, 0, 6},
+    {"公主坟手机壳", 40, 15, 0, 7},
+    {"积水潭旧医书", 80, 30, 0, 8},
+    {"崇文门旧家具", 350, 150, 0, 9}
 };
 
 const char* locations[NUM_LOCATIONS] = {
-    "王府井", "中关村", "西直门", "建国门", "复兴门", 
+    "王府井", "中关村", "西直门", "建国门", "复兴门",
     "北京站", "苹果园", "公主坟", "积水潭", "崇文门"
 };
 
-// --- UI 变量 ---
 lv_obj_t *lbl_bj_status, *tab_market, *tab_bag, *tab_move, *tab_place;
 lv_obj_t *list_market, *list_bag, *modal_msg, *lbl_msg_content, *menu_overlay;
 lv_obj_t *modal_trade, *lbl_trade_title, *lbl_trade_info, *lbl_trade_qty;
@@ -89,8 +82,6 @@ static bool is_buying_mode = true;
 static int trade_qty = 0;
 static int max_qty = 0;
 lv_obj_t *modal_sub, *list_sub, *lbl_sub_title;
-
-// --- 核心逻辑 ---
 void show_bj_msg(const char* msg) {
     lv_label_set_text(lbl_msg_content, msg);
     lv_obj_clear_flag(modal_msg, LV_OBJ_FLAG_HIDDEN);
@@ -168,8 +159,8 @@ void next_day(int new_loc) {
     bj.day++;
     bj.location = new_loc;
     
-    bj.bank += bj.bank * 0.05; 
-    bj.debt += bj.debt * bj.debt_rate; 
+    bj.bank += (long)((long long)bj.bank * 5LL / 100LL);
+    bj.debt += (long)((long long)bj.debt * (long long)(bj.debt_rate * 1000) / 1000LL);
     
     int pr = rand() % 100;
     char event_msg[256] = "";
@@ -397,7 +388,7 @@ void refresh_beijing_ui() {
             bj.cash, bj.bank, bj.debt);
     lv_label_set_text(lbl_bj_status, buf);
 
-    if (bj.day >= 999) return; // 游戏结束，禁止刷出可交互按键
+    if (bj.day >= 999) return;
 
     lv_obj_clean(list_market);
     for(int i=0; i<NUM_ITEMS; i++) {

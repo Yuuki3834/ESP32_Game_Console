@@ -468,7 +468,7 @@ void spawn_monsters_for_loc(int loc_id) {
 
         std::vector<int> pool;
         for(int m=0; m<zh_data_monsters_count; m++) {
-            if (zh_data_monsters[m].region_id == target_region || zh_data_monsters[m].region_id == 2) {
+            if (zh_data_monsters[m].region_id == target_region || zh_data_monsters[m].region_id == 0) {
                 if (zh_data_monsters[m].level <= loc->param2 + 10) pool.push_back(m);
             }
         }
@@ -529,7 +529,7 @@ void refresh_zongheng_ui() {
     const ZH_Adjutant* a3 = get_adjutant_by_id(zh_player.eq_adj_doctor);
     const ZH_Adjutant* a4 = get_adjutant_by_id(zh_player.eq_adj_accountant);
 
-    char detail_buf[768];
+    char detail_buf[1024];
     snprintf(detail_buf, sizeof(detail_buf), 
         "【详细属性】\n等 级: %d (EXP: %d/%d)\n生 命: %d / %d | 魔 法: %d / %d\n"
         "攻 击: %d | 防 御: %d\n暴 击: %d%% | 闪 避: %d%%\n套 装: %s%s\n"
@@ -638,8 +638,8 @@ void refresh_zongheng_ui() {
         add_act_btn("偿还 1000 欠款", [](lv_event_t *e){ 
             if(zh_player.debt <= 0) zh_log("没有欠款。"); else if(zh_player.gold >= 1000) { zh_player.gold -= 1000; zh_player.debt -= 1000; if(zh_player.debt<0) zh_player.debt=0; zh_log("还款成功！"); } else zh_log("铜贝不足！"); refresh_zongheng_ui(); 
         });
-        add_act_btn("1000铜贝 换 1银贝", [](lv_event_t *e){ if(zh_player.gold >= 1000) { zh_player.gold -= 1000; zh_player.silver += 1; zh_log("兑换成功。"); } else zh_log("铜贝不足！"); refresh_zongheng_ui(); }, 0x555500);
-        add_act_btn("1银贝 换 1200铜贝", [](lv_event_t *e){ if(zh_player.silver >= 1) { zh_player.silver -= 1; zh_player.gold += 1200; zh_log("大赚一笔！"); } else zh_log("没有银贝！"); refresh_zongheng_ui(); }, 0x555500);
+        add_act_btn("1200铜贝 换 1银贝", [](lv_event_t *e){ if(zh_player.gold >= 1200) { zh_player.gold -= 1200; zh_player.silver += 1; zh_log("兑换成功。"); } else zh_log("铜贝不足！"); refresh_zongheng_ui(); }, 0x555500);
+        add_act_btn("1银贝 换 1000铜贝", [](lv_event_t *e){ if(zh_player.silver >= 1) { zh_player.silver -= 1; zh_player.gold += 1000; zh_log("兑换成功！"); } else zh_log("没有银贝！"); refresh_zongheng_ui(); }, 0x555500);
     } else if (loc->action_type == 14) { 
         add_act_btn("查看悬赏榜(世界Boss)", [](lv_event_t *e){ open_tavern_bounty_board(); refresh_zongheng_ui(); }, 0x8B0000);
     } else if (loc->action_type == 7) { 
@@ -663,6 +663,15 @@ void refresh_zongheng_ui() {
                 int pool_start = (rand() % 100 < 5) ? 1 : 0; 
                 int r_type = (rand() % 4) * 2 + pool_start;
                 int new_adj_id = zh_data_adjutants[r_type].id;
+                bool already_has = false;
+                for(int k=0; k<10; k++) {
+                    if(zh_player.adjutants_roster[k] == new_adj_id) { already_has = true; break; }
+                }
+                if(already_has) {
+                    zh_log("【招募失败】\n该类型的副官你已拥有，招募者退回了你的银贝。");
+                    zh_player.silver += 1; 
+                    return;
+                }
                 
                 zh_player.adjutants_roster[empty_slot] = new_adj_id;
                 char buf[128];
@@ -696,10 +705,20 @@ void refresh_zongheng_ui() {
             lv_label_set_text(lbl_npc_dialogue, "别打我了，我好痛！你需要什么我都给你...");
         } else {
             int d_idx;
-            do { d_idx = rand() % 5; } while (npc->dialogs[d_idx] == NULL || strlen(npc->dialogs[d_idx]) == 0);
-            lv_label_set_text(lbl_npc_dialogue, npc->dialogs[d_idx]);
+            int safe_cnt = 0;
+            do {
+                d_idx = rand() % 5;
+                safe_cnt++;
+            } while ((npc->dialogs[d_idx] == NULL || strlen(npc->dialogs[d_idx]) == 0) && safe_cnt < 10);
+
+            // 兜底处理
+            if (npc->dialogs[d_idx] == NULL || strlen(npc->dialogs[d_idx]) == 0) {
+                lv_label_set_text(lbl_npc_dialogue, "（这个人沉默不语...）");
+            } else {
+                lv_label_set_text(lbl_npc_dialogue, npc->dialogs[d_idx]);
+            }
         }
-        
+
         lv_obj_clean(cont_npc_actions);
         auto add_n_btn = [](const char* txt, lv_event_cb_t cb, uint32_t color) {
             lv_obj_t * b = lv_btn_create(cont_npc_actions); lv_obj_set_size(b, 170, 35); lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
@@ -959,12 +978,10 @@ void build_zongheng_scene() {
         // 2. 调用外部文件的重置函数
         reset_combat_ui_pointers();
         reset_market_ui_pointers();
+        reset_quest_ui_pointers();
     }
     
-    // 创建并验证主场景对象
-    scr_zongheng = lv_obj_create(NULL); 
-    
-    // 创建并验证主场景对象
+// 创建并验证主场景对象
     scr_zongheng = lv_obj_create(NULL); 
     if (!scr_zongheng) { zh_log("错误：无法创建主场景对象！"); return; }
     lv_obj_set_style_bg_color(scr_zongheng, lv_color_hex(0x1a252f), 0);

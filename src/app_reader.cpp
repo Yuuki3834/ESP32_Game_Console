@@ -3,7 +3,6 @@
 #include <LittleFS.h>
 #include <vector>
 
-// UI 对象
 lv_obj_t * scr_reader = NULL;
 lv_obj_t * scr_reading = NULL;
 lv_obj_t * list_bookshelf = NULL;
@@ -11,14 +10,12 @@ lv_obj_t * modal_import = NULL;
 lv_obj_t * list_sd_files = NULL;
 lv_obj_t * modal_menu = NULL;
 
-// 阅读界面对象
 lv_obj_t * lbl_content = NULL;
 lv_obj_t * overlay_menu = NULL;
 lv_obj_t * slider_brightness = NULL;
 lv_obj_t * slider_spacing = NULL;
 lv_style_t style_read_text; 
 
-// 数据状态
 std::vector<String> bookshelf_files;
 File current_book;
 uint32_t file_size = 0;
@@ -28,7 +25,6 @@ bool is_remove_mode = false;
 int line_spacing = 5;
 int screen_brightness = 255;
 
-// ================= 书架数据管理 =================
 void load_bookshelf() {
     bookshelf_files.clear();
     if (LittleFS.exists("/books.dat")) {
@@ -66,7 +62,6 @@ void remove_book(int index) {
     refresh_bookshelf_ui();
 }
 
-// ================= 阅读器核心逻辑 =================
 void init_backlight() {
     static bool init_done = false;
     if (!init_done) {
@@ -81,21 +76,27 @@ void read_page(uint32_t pos) {
     if (!current_book) return;
     current_book.seek(pos);
     
-    // 对齐 SD 卡扇区 512 字节，加 1 个字符位给 '\0'
     char buf[513] = {0}; 
     int bytesRead = current_book.read((uint8_t*)buf, 512);
+    int originalRead = bytesRead; 
     
     if (bytesRead > 0) {
         while (bytesRead > 0) {
-            if ((buf[bytesRead - 1] & 0x80) == 0) break; 
-            while (bytesRead > 0) {
-              if ((buf[bytesRead - 1] & 0x80) == 0) break; // 遇到 ASCII，安全
-              if ((buf[bytesRead - 1] & 0xC0) == 0x80) { bytesRead--; } // 遇到延续字节，回退
-              else { bytesRead--; break; } // 遇到汉字的首字节，回退它并跳出，彻底安全
-}
-            bytesRead--;
+            uint8_t last_byte = buf[bytesRead - 1];
+            if ((last_byte & 0x80) == 0) {
+                break; 
+            } else if ((last_byte & 0xC0) == 0x80) {
+                bytesRead--; 
+            } else {
+                bytesRead--; 
+                break;
+            }
         }
         buf[bytesRead] = '\0';
+        
+        if (bytesRead < originalRead) {
+            current_book.seek(current_book.position() - (originalRead - bytesRead));
+        }
         current_pos = pos;
     } else {
         strcpy(buf, "\n\n      --- 本书完 ---");
@@ -104,6 +105,11 @@ void read_page(uint32_t pos) {
 }
 
 void jump_chapter(bool forward) {
+    extern volatile bool req_pause;
+    extern volatile bool is_playing;
+    if(is_playing) {
+        req_pause = true; // 阅读时强制暂停音乐，保护 SD 总线
+    }
     if (!current_book || file_size == 0) return;
     uint32_t search_pos = current_pos;
     
@@ -126,7 +132,6 @@ void jump_chapter(bool forward) {
             }
             search_pos += 450;
 
-            // 【修复 1】：喂狗让出 CPU 资源，防止大体积 TXT 搜索跨章时导致看门狗复位 (WDT Reset)
             vTaskDelay(pdMS_TO_TICKS(1)); 
         }
         current_pos = (current_pos + 10000 < file_size) ? current_pos + 10000 : file_size - 500;
@@ -137,12 +142,16 @@ void jump_chapter(bool forward) {
 }
 
 void open_book(const char* path) {
+    extern volatile bool req_pause;
+    extern volatile bool is_playing;
+    if(is_playing) {
+        req_pause = true; // 阅读时强制暂停音乐，保护 SD 总线
+    }
     if (current_book) current_book.close();
     current_book = SD_MMC.open(path, FILE_READ);
     if (!current_book) return;
     file_size = current_book.size();
     
-    // 【修复 2】：使用 static 标志位防止多次调用 lv_style_init 导致的严重内存泄漏
     static bool style_inited = false;
     if (!style_inited) {
         lv_style_init(&style_read_text);
@@ -151,6 +160,7 @@ void open_book(const char* path) {
 
     lv_style_set_text_font(&style_read_text, &my_font_cn_16);
     lv_style_set_text_line_space(&style_read_text, line_spacing);
+    lv_obj_remove_style_all(lbl_content); 
     lv_obj_add_style(lbl_content, &style_read_text, 0);
     
     init_backlight();
@@ -179,8 +189,6 @@ static void reading_screen_click_cb(lv_event_t * e) {
         lv_obj_move_foreground(overlay_menu);
     }
 }
-
-// ================= UI 构建 =================
 
 void refresh_bookshelf_ui() {
     lv_obj_clean(list_bookshelf);
@@ -226,19 +234,20 @@ void open_import_modal() {
                 String full_path = "/" + fname;
                 char * path_ptr = strdup(full_path.c_str());
                 
-                // 绑定点击事件，执行导入
                 lv_obj_add_event_cb(btn, [](lv_event_t *e){
                     import_book((const char*)lv_event_get_user_data(e));
                 }, LV_EVENT_CLICKED, path_ptr);
 
-                // 绑定销毁事件，防止内存泄漏导致系统崩溃
                 lv_obj_add_event_cb(btn, [](lv_event_t *e){
                     char * ptr = (char*)lv_event_get_user_data(e);
                     if(ptr) free(ptr);
                 }, LV_EVENT_DELETE, path_ptr);
             }
-            file = root.openNextFile();
+            File next_file = root.openNextFile();
+            file.close();  // 显式释放上一轮的文件句柄
+            file = next_file;
         }
+        root.close();  // 释放目录句柄
     }
     lv_obj_clear_flag(modal_import, LV_OBJ_FLAG_HIDDEN);
 }
@@ -246,12 +255,10 @@ void open_import_modal() {
 void build_reader_scene() {
     load_bookshelf();
 
-    // ================= 1. 主书架界面 =================
     if (scr_reader != NULL) { 
         lv_obj_del(scr_reader); 
         scr_reader = NULL; 
         
-        // 【修复 3】：清空子控件的野指针，防止异步回调导致非法访问
         list_bookshelf = NULL;
         modal_import = NULL;
         list_sd_files = NULL;
@@ -282,7 +289,6 @@ void build_reader_scene() {
     lv_obj_set_style_border_width(list_bookshelf, 0, 0);
     refresh_bookshelf_ui();
 
-    // -- 主页菜单 Modal --
     modal_menu = lv_obj_create(scr_reader);
     lv_obj_set_size(modal_menu, 160, 200);
     lv_obj_center(modal_menu);
@@ -307,7 +313,6 @@ void build_reader_scene() {
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 
-    // -- 导入书籍 Modal --
     modal_import = lv_obj_create(scr_reader);
     lv_obj_set_size(modal_import, 220, 280);
     lv_obj_center(modal_import);
@@ -331,13 +336,13 @@ void build_reader_scene() {
     lv_label_set_text(l_ci, "取消"); lv_obj_center(l_ci);
     lv_obj_add_event_cb(btn_cls_imp, [](lv_event_t *e){ lv_obj_add_flag(modal_import, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, NULL);
 
-    // ================= 2. 沉浸式阅读界面 =================
     if (scr_reading != NULL) { 
         lv_obj_del(scr_reading); 
         scr_reading = NULL; 
-        
-        // 【修复 4】：清空阅读界面的子控件野指针
         lbl_content = NULL;
+        overlay_menu = NULL;
+        slider_brightness = NULL;
+        slider_spacing = NULL;
         overlay_menu = NULL;
         slider_brightness = NULL;
         slider_spacing = NULL;
@@ -353,7 +358,6 @@ void build_reader_scene() {
     lv_obj_align(lbl_content, LV_ALIGN_TOP_MID, 0, 5);
     lv_obj_add_flag(lbl_content, LV_OBJ_FLAG_CLICK_FOCUSABLE); 
 
-    // ================= 3. 阅读器悬浮菜单 =================
     overlay_menu = lv_obj_create(scr_reading);
     lv_obj_set_size(overlay_menu, 240, 320);
     lv_obj_center(overlay_menu);
