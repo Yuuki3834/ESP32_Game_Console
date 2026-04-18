@@ -91,7 +91,10 @@ void show_bj_msg(const char* msg) {
 void randomize_prices() {
     strcpy(bj.rumor, "今天风平浪静，没有特别的消息。");
     for(int i = 0; i < NUM_ITEMS; i++) {
-        int var = (rand() % (items[i].volatility * 2)) - items[i].volatility;
+        int var = 0;
+        if (items[i].volatility > 0) {
+            var = (rand() % (items[i].volatility * 2)) - items[i].volatility;
+        }
         items[i].current_price = items[i].base_price + var;
         if(items[i].current_price < 5) items[i].current_price = 5; 
         if(items[i].source_loc != -1 && items[i].source_loc != bj.location) {
@@ -147,7 +150,7 @@ void check_end_game() {
         else if (total < 5000000) title = "商业奇才：成立了自己的贸易公司！";
         else title = "一代传奇：你成了京城首屈一指的新巨头！";
         
-        char buf[256];
+        static char buf[256];
         snprintf(buf, sizeof(buf), "40天期满！\n最终净资产: %ld 块\n结局: %s", total, title);
         show_bj_msg(buf);
         bj.day = 999;
@@ -163,7 +166,7 @@ void next_day(int new_loc) {
     bj.debt += (long)((long long)bj.debt * (long long)(bj.debt_rate * 1000) / 1000LL);
     
     int pr = rand() % 100;
-    char event_msg[256] = "";
+    static char event_msg[256] = "";
     
     if (pr < 5) {
         bj.cash += 3000; 
@@ -360,6 +363,7 @@ void open_trade_modal(int idx, bool is_buy) {
 }
 
 void execute_trade() {
+    if (trade_idx < 0 || trade_idx >= NUM_ITEMS) return;
     if (trade_qty > 0) {
         if (is_buying_mode) {
             long total_cost = ((long)bj.inventory[trade_idx].count * bj.inventory[trade_idx].avg_buy_price) + ((long)trade_qty * items[trade_idx].current_price);
@@ -381,7 +385,7 @@ void execute_trade() {
 void refresh_beijing_ui() {
     if (!scr_beijing) return;
 
-    char buf[256];
+    static char buf[256];
     snprintf(buf, sizeof(buf), "第%d天 [%s] 血:%d 仓:%d/%d\n%s\n现:%ld 存:%ld 欠:%ld", 
             bj.day > MAX_DAYS ? MAX_DAYS : bj.day, locations[bj.location], 
             bj.health, bj.storage, bj.max_storage, bj.rumor,
@@ -395,7 +399,7 @@ void refresh_beijing_ui() {
         if(items[i].current_price <= 0) continue;
         if(items[i].source_loc != -1 && items[i].source_loc != bj.location) continue;
 
-        char item_buf[64];
+        static char item_buf[64];
         snprintf(item_buf, sizeof(item_buf), "%s: %d 块", items[i].name, items[i].current_price);
         lv_obj_t * btn = lv_list_add_btn(list_market, NULL, item_buf);
         
@@ -429,9 +433,9 @@ void refresh_beijing_ui() {
 }
 
 void build_beijing_scene() {
-    if (scr_beijing != NULL) { 
-        lv_obj_del(scr_beijing); 
-        scr_beijing = NULL; 
+    if (scr_beijing != NULL) {
+        lv_obj_del_async(scr_beijing);
+        scr_beijing = NULL;
     }
     scr_beijing = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_beijing, lv_color_hex(0x111111), 0);
@@ -616,8 +620,12 @@ void build_beijing_scene() {
             if(id==1) { save_beijing_game(); lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN); }
             if(id==2) { reset_beijing_game(); lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN); }
             if(id==3) {
+                // 保存游戏并清理内存
+                save_beijing_game();
                 lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN);
-                lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false);
+                lv_scr_load(scr_menu);
+                lv_obj_del_async(scr_beijing);
+                scr_beijing = NULL;
             }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }

@@ -529,7 +529,7 @@ void refresh_zongheng_ui() {
     const ZH_Adjutant* a3 = get_adjutant_by_id(zh_player.eq_adj_doctor);
     const ZH_Adjutant* a4 = get_adjutant_by_id(zh_player.eq_adj_accountant);
 
-    char detail_buf[1024];
+    static char detail_buf[1024];
     snprintf(detail_buf, sizeof(detail_buf), 
         "【详细属性】\n等 级: %d (EXP: %d/%d)\n生 命: %d / %d | 魔 法: %d / %d\n"
         "攻 击: %d | 防 御: %d\n暴 击: %d%% | 闪 避: %d%%\n套 装: %s%s\n"
@@ -562,7 +562,7 @@ void refresh_zongheng_ui() {
                 
                 if (zh_player.crime_value >= 50 && rand() % 100 < 5) { zh_log("街上被巡警盘问罚款 50 铜贝！"); zh_player.gold -= 50; if(zh_player.gold < 0) zh_player.gold = 0; }
                 zh_player.location_id = tid; spawn_monsters_for_loc(tid); 
-                const ZH_Location* nloc = get_current_loc(); char buf[512]; 
+                const ZH_Location* nloc = get_current_loc(); static char buf[512];
                 snprintf(buf, sizeof(buf), "【%s】\n%s", nloc->name, nloc->desc); 
                 // 修复：传入缓冲区大小
                 trigger_random_land_event(buf, sizeof(buf)); 
@@ -901,21 +901,21 @@ void refresh_zongheng_ui() {
     }
 
     if (current_bag_filter == 0 || current_bag_filter == 1) {
-        auto handle_unequip = [&](int& eq_slot, const char* slot_name) {
-            if(eq_slot != -1) {
-                ZH_Item item = get_item_by_id(eq_slot);
+        auto handle_unequip = [&](int* eq_slot_ptr, const char* slot_name) {
+            if(*eq_slot_ptr != -1) {
+                ZH_Item item = get_item_by_id(*eq_slot_ptr);
                 char buf[64]; snprintf(buf, sizeof(buf), "[穿戴中] %s: %s", slot_name, item.name);
                 lv_obj_t * btn = lv_list_add_btn(list_zh_bag, LV_SYMBOL_MINUS, buf);
-                lv_obj_set_style_bg_color(btn, lv_color_hex(0x552222), 0); 
+                lv_obj_set_style_bg_color(btn, lv_color_hex(0x552222), 0);
                 lv_obj_t * lbl = lv_obj_get_child(btn, 1); if(lbl){ lv_obj_add_style(lbl, &style_cn, 0); lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFD700), 0); }
                 lv_obj_add_event_cb(btn, [](lv_event_t *e){
                     int* slot_ptr = (int*)lv_event_get_user_data(e);
                     for(int i=0; i<50; i++) if(zh_player.inventory[i] == -1) { zh_player.inventory[i] = *slot_ptr; *slot_ptr = -1; zh_log("装备已卸下放入背包。"); refresh_zongheng_ui(); return; }
                     zh_log("背包已满，无法卸下！");
-                }, LV_EVENT_CLICKED, (void*)&eq_slot);
+                }, LV_EVENT_CLICKED, (void*)eq_slot_ptr);
             }
         };
-        handle_unequip(zh_player.eq_head, "头盔"); handle_unequip(zh_player.eq_chest, "胸甲"); handle_unequip(zh_player.eq_legs, "护腿"); handle_unequip(zh_player.eq_shoes, "鞋子"); handle_unequip(zh_player.eq_weapon, "武器");
+        handle_unequip(&zh_player.eq_head, "头盔"); handle_unequip(&zh_player.eq_chest, "胸甲"); handle_unequip(&zh_player.eq_legs, "护腿"); handle_unequip(&zh_player.eq_shoes, "鞋子"); handle_unequip(&zh_player.eq_weapon, "武器");
     }
 
     bool has_item = false;
@@ -940,7 +940,7 @@ void refresh_zongheng_ui() {
                     selected_inventory_idx = (int)(intptr_t)lv_event_get_user_data(e);
                     ZH_Item i_ptr = get_item_by_id(zh_player.inventory[selected_inventory_idx]);
                     char title_buf[128]; snprintf(title_buf, sizeof(title_buf), "【%s】", i_ptr.name); lv_label_set_text(lbl_item_detail_title, title_buf);
-                    char desc_buf[512];
+                    static char desc_buf[512];
                     if (i_ptr.type >= 1 && i_ptr.type <= 5) { const char* slots[] = {"武器", "头盔", "胸甲", "护腿", "鞋子"}; snprintf(desc_buf, sizeof(desc_buf), "部位: %s\n属性值: +%d\n售价: %d 铜贝\n\n点击装备替换当前部位。", slots[i_ptr.type-1], i_ptr.value, i_ptr.price); } 
                     else if (i_ptr.type == 6 || i_ptr.type == 7) snprintf(desc_buf, sizeof(desc_buf), "神奇药水 (部分草药可直接使用)\n效果: 提升/恢复 %d 点数值\n售价: %d\n\n咕噜咕噜...", i_ptr.value, i_ptr.price);
                     else if (i_ptr.type == 9) snprintf(desc_buf, sizeof(desc_buf), "【战斗秘宝】\n售价: %d 铜贝\n\n注意：此物品极度危险/珍贵，只能在【战斗界面】中点击使用！", i_ptr.price);
@@ -960,26 +960,27 @@ void refresh_zongheng_ui() {
 
 void build_zongheng_scene() {
     // 清空之前的场景以避免内存泄漏与野指针崩溃
-    if (scr_zongheng) { 
-        lv_obj_del(scr_zongheng); 
-        scr_zongheng = NULL; 
-        
-        // 1. 重置本文件内的全局/静态懒加载弹窗指针
-        modal_npc = NULL;
-        modal_item_detail = NULL;
-        modal_zh_skill_cfg = NULL;
-        modal_zh_skill_select = NULL;
-        modal_adjutant = NULL;
-        modal_forge = NULL;
-        list_forge_recipes = NULL;
-        list_adj_slots = NULL;
-        list_adj_roster = NULL;
-
-        // 2. 调用外部文件的重置函数
-        reset_combat_ui_pointers();
-        reset_market_ui_pointers();
-        reset_quest_ui_pointers();
+    if (scr_zongheng) {
+        lv_obj_del_async(scr_zongheng);
+        scr_zongheng = NULL;
     }
+    
+    // 【修改】把指针重置放在 if 的外面，确保每次重入必被清空
+    // 1. 重置本文件内的全局/静态懒加载弹窗指针
+    modal_npc = NULL;
+    modal_item_detail = NULL;
+    modal_zh_skill_cfg = NULL;
+    modal_zh_skill_select = NULL;
+    modal_adjutant = NULL;
+    modal_forge = NULL;
+    list_forge_recipes = NULL;
+    list_adj_slots = NULL;
+    list_adj_roster = NULL;
+
+    // 2. 调用外部文件的重置函数
+    reset_combat_ui_pointers();
+    reset_market_ui_pointers();
+    reset_quest_ui_pointers();
     
 // 创建并验证主场景对象
     scr_zongheng = lv_obj_create(NULL); 
@@ -987,7 +988,7 @@ void build_zongheng_scene() {
     lv_obj_set_style_bg_color(scr_zongheng, lv_color_hex(0x1a252f), 0);
     
     lbl_zh_top_status = lv_label_create(scr_zongheng); 
-    if (!lbl_zh_top_status) { lv_obj_del(scr_zongheng); scr_zongheng = NULL; zh_log("错误：无法创建状态标签！"); return; }
+    if (!lbl_zh_top_status) { lv_obj_del_async(scr_zongheng); scr_zongheng = NULL; zh_log("错误：无法创建状态标签！"); return; }
     lv_obj_add_style(lbl_zh_top_status, &style_cn, 0); 
     lv_obj_set_width(lbl_zh_top_status, 150); 
     lv_obj_set_style_text_color(lbl_zh_top_status, lv_color_hex(0xF1C40F), 0); lv_obj_align(lbl_zh_top_status, LV_ALIGN_TOP_LEFT, 5, 5);
@@ -1034,7 +1035,13 @@ void build_zongheng_scene() {
             if(id == 2) { refresh_adjutant_cfg_list(); lv_obj_clear_flag(modal_adjutant, LV_OBJ_FLAG_HIDDEN); }
             if(id == 3) save_zongheng_game(); 
             if(id == 4) reset_zongheng_game(); 
-            if(id == 5) lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false); 
+            if(id == 5) {
+                // 保存游戏并清理内存
+                save_zongheng_game();
+                lv_scr_load(scr_menu);
+                lv_obj_del_async(scr_zongheng);
+                scr_zongheng = NULL;
+            }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 

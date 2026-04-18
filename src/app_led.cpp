@@ -194,9 +194,9 @@ void build_led_scene() {
         xTaskCreatePinnedToCore(led_task, "LEDTask", 4096, NULL, 1, &ledTaskHandle, 1);
     }
 
-    if (scr_led != NULL) { 
-        lv_obj_del(scr_led); 
-        scr_led = NULL; 
+    if (scr_led != NULL) {
+        lv_obj_del_async(scr_led);
+        scr_led = NULL;
         sw_power = NULL; slider_r = NULL; slider_g = NULL; slider_b = NULL;
         ta_r = NULL; ta_g = NULL; ta_b = NULL; dd_mode = NULL; dd_timer = NULL;
         slider_on_time = NULL; lbl_on_time = NULL; slider_off_time = NULL; lbl_off_time = NULL;
@@ -230,7 +230,11 @@ void build_led_scene() {
     lv_obj_add_style(lbl_back, &style_cn, 0);
     lv_label_set_text(lbl_back, "返回"); lv_obj_center(lbl_back);
     lv_obj_add_event_cb(btn_back, [](lv_event_t *e){
-        lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
+        if (led_ui_timer) lv_timer_pause(led_ui_timer); // ✅ 离开时暂停
+        // 清理内存
+        lv_scr_load(scr_menu);
+        lv_obj_del_async(scr_led);
+        scr_led = NULL;
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * cont = lv_obj_create(scr_led);
@@ -362,5 +366,8 @@ void build_led_scene() {
     };
     lv_obj_add_event_cb(slider_on_time, update_flash_labels, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(slider_off_time, update_flash_labels, LV_EVENT_VALUE_CHANGED, NULL);
-    update_flash_labels(NULL); 
+    update_flash_labels(NULL);
+    
+    // 在 build_led_scene() 结尾添加：
+    if (led_ui_timer) lv_timer_resume(led_ui_timer); // ✅ 进入时恢复定时器
 }

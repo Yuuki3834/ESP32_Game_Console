@@ -2,6 +2,8 @@
 #include <SD_MMC.h>
 #include "Audio.h"
 #include <vector>
+#include <array>
+#include <cstring>
 
 lv_obj_t * scr_music = NULL;
 lv_obj_t * list_music = NULL;
@@ -15,7 +17,7 @@ static lv_timer_t * music_ui_timer = NULL;
 Audio audio;
 TaskHandle_t audioTaskHandle = NULL;
 
-std::vector<String> playlist;
+std::vector<std::array<char, 64>> playlist;
 int current_song_idx = -1;
 volatile bool is_playing = false;
 static bool playlist_initialized = false;
@@ -42,8 +44,16 @@ void audio_task(void *pvParameters) {
         
         if (req_play && req_song_idx >= 0 && req_song_idx < (int)playlist.size()) {
             audio.stopSong();
-            String path = String("/") + playlist[req_song_idx];
-            audio.connecttoFS(SD_MMC, path.c_str());
+            char path[128];
+            snprintf(path, sizeof(path), "/%s", playlist[req_song_idx].data());
+            
+            // 使用互斥锁保护 SD 卡访问
+            if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+                audio.connecttoFS(SD_MMC, path);
+                xSemaphoreGive(sd_mutex);
+                vTaskDelay(pdMS_TO_TICKS(2)); // 【新增】强制让出CPU，防止饿死UI任务
+            }
+            
             current_song_idx = req_song_idx;
             is_playing = true;
             req_play = false;
@@ -61,13 +71,20 @@ void audio_task(void *pvParameters) {
         }
         
         if (audio.isRunning()) {
-            audio.loop();
-            vTaskDelay(pdMS_TO_TICKS(1));
+            // 使用互斥锁保护 SD 卡访问
+            if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                audio.loop(); // 内部满了会自动 Yield，不需要手动 Delay
+                xSemaphoreGive(sd_mutex);
+                vTaskDelay(pdMS_TO_TICKS(2)); // 【新增】强制让出CPU，防止饿死UI任务
+            } else {
+                // 如果无法获取互斥锁，短暂延迟后重试
+                vTaskDelay(pdMS_TO_TICKS(5));
+            }
         } else {
             if (is_playing) {
-                is_playing = false; 
+                is_playing = false;
             }
-            vTaskDelay(pdMS_TO_TICKS(10));
+            vTaskDelay(pdMS_TO_TICKS(10)); // 没在播放时才休息
         }
     }
 }
@@ -78,7 +95,7 @@ void play_song_by_index(int idx) {
     req_song_idx = idx;
     req_play = true;
     
-    if (lbl_song_title) lv_label_set_text(lbl_song_title, playlist[idx].c_str());
+    if (lbl_song_title) lv_label_set_text(lbl_song_title, playlist[idx].data());
     if (lbl_play_icon) lv_label_set_text(lbl_play_icon, LV_SYMBOL_PAUSE);
 }
 
@@ -86,17 +103,26 @@ void init_playlist_once() {
     if (playlist_initialized) return;
 
     playlist.clear();
-    File root = SD_MMC.open("/");
-    if (root) {
-        File file = root.openNextFile();
-        while (file) {
-            String filename = file.name();
-            if (!file.isDirectory() && (filename.endsWith(".mp3") || filename.endsWith(".MP3"))) {
-                playlist.push_back(filename);
+    // 使用互斥锁保护 SD 卡访问
+    if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        File root = SD_MMC.open("/");
+        if (root) {
+            File file = root.openNextFile();
+            while (file) {
+                const char* filename = file.name();
+                if (!file.isDirectory() && (strstr(filename, ".mp3") != NULL || strstr(filename, ".MP3") != NULL)) {
+                    std::array<char, 64> song_name;
+                    strncpy(song_name.data(), filename, 63);
+                    song_name[63] = '\0';
+                    playlist.push_back(song_name);
+                }
+                File next_file = root.openNextFile();
+                file.close();
+                file = next_file;
             }
-            file = root.openNextFile();
+            root.close();
         }
-        root.close();  
+        xSemaphoreGive(sd_mutex);
     }
     
     playlist_initialized = true;
@@ -107,9 +133,9 @@ void build_music_scene() {
     if (audioTaskHandle == NULL) {
         xTaskCreatePinnedToCore(audio_task, "AudioTask", 16384, NULL, 2, &audioTaskHandle, 0);
     }
-    if (scr_music != NULL) { 
-        lv_obj_del(scr_music); 
-        scr_music = NULL; 
+    if (scr_music != NULL) {
+        lv_obj_del_async(scr_music);
+        scr_music = NULL;
         list_music = NULL;
         lbl_song_title = NULL;
         btn_play = NULL;
@@ -135,13 +161,12 @@ void build_music_scene() {
     lv_obj_center(lbl_back);
     
     lv_obj_add_event_cb(btn_back, [](lv_event_t *e){
-        req_stop = true; // 仅停止后台播放，但不清空任何指针
-        // [删除这几行]
-        // if (music_ui_timer != NULL) { lv_timer_del(music_ui_timer); music_ui_timer = NULL; }
-        // list_music = NULL; lbl_song_title = NULL; btn_play = NULL;
-        // lbl_play_icon = NULL; slider_vol = NULL;
-        
-        lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
+        req_stop = true;
+        if (music_ui_timer) lv_timer_pause(music_ui_timer); // ✅ 离开时暂停定时器
+        // 清理内存
+        lv_scr_load(scr_menu);
+        lv_obj_del_async(scr_music);
+        scr_music = NULL;
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * panel_control = lv_obj_create(scr_music);
@@ -153,7 +178,7 @@ void build_music_scene() {
     lbl_song_title = lv_label_create(panel_control);
     lv_obj_add_style(lbl_song_title, &style_cn, 0);
     if (current_song_idx >= 0 && current_song_idx < (int)playlist.size()) {
-        lv_label_set_text(lbl_song_title, playlist[current_song_idx].c_str());
+        lv_label_set_text(lbl_song_title, playlist[current_song_idx].data());
     } else {
         lv_label_set_text(lbl_song_title, "请选择歌曲...");
     }
@@ -237,7 +262,7 @@ void build_music_scene() {
         lv_obj_center(lbl_empty);
     } else {
         for (int i = 0; i < (int)playlist.size(); i++) {
-            lv_obj_t * btn = lv_list_add_btn(list_music, LV_SYMBOL_AUDIO, playlist[i].c_str());
+            lv_obj_t * btn = lv_list_add_btn(list_music, LV_SYMBOL_AUDIO, playlist[i].data());
             lv_obj_set_style_bg_color(btn, lv_color_hex(0x0f3460), 0);
             lv_obj_set_style_border_color(btn, lv_color_hex(0x1a1a2e), 0);
             lv_obj_t * lbl = lv_obj_get_child(btn, 1);
@@ -266,4 +291,7 @@ void build_music_scene() {
             }
         }
     }, 500, NULL);
+    
+    // 在 build_music_scene() 结尾处添加：
+    if (music_ui_timer) lv_timer_resume(music_ui_timer); // ✅ 进入时恢复定时器
 }

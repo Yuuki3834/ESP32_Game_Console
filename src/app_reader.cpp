@@ -74,99 +74,121 @@ void init_backlight() {
 
 void read_page(uint32_t pos) {
     if (!current_book) return;
-    current_book.seek(pos);
     
-    char buf[513] = {0}; 
-    int bytesRead = current_book.read((uint8_t*)buf, 512);
-    int originalRead = bytesRead; 
-    
-    if (bytesRead > 0) {
-        while (bytesRead > 0) {
-            uint8_t last_byte = buf[bytesRead - 1];
-            if ((last_byte & 0x80) == 0) {
-                break; 
-            } else if ((last_byte & 0xC0) == 0x80) {
-                bytesRead--; 
-            } else {
-                bytesRead--; 
-                break;
-            }
-        }
-        buf[bytesRead] = '\0';
+    // 使用互斥锁保护 SD 卡访问
+    if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        current_book.seek(pos);
         
-        if (bytesRead < originalRead) {
-            current_book.seek(current_book.position() - (originalRead - bytesRead));
+        char buf[513] = {0};
+        int bytesRead = current_book.read((uint8_t*)buf, 512);
+        int originalRead = bytesRead;
+        
+        if (bytesRead > 0) {
+            while (bytesRead > 0) {
+                uint8_t last_byte = buf[bytesRead - 1];
+                if ((last_byte & 0x80) == 0) {
+                    break;
+                } else if ((last_byte & 0xC0) == 0x80) {
+                    bytesRead--;
+                } else {
+                    bytesRead--;
+                    break;
+                }
+            }
+            buf[bytesRead] = '\0';
+            
+            if (bytesRead < originalRead) {
+                current_book.seek(current_book.position() - (originalRead - bytesRead));
+            }
+            current_pos = pos;
+        } else {
+            strcpy(buf, "\n\n      --- 本书完 ---");
         }
-        current_pos = pos;
+        xSemaphoreGive(sd_mutex);
+        
+        lv_label_set_text(lbl_content, buf);
     } else {
-        strcpy(buf, "\n\n      --- 本书完 ---");
+        // 如果无法获取互斥锁，显示错误信息
+        lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
     }
-    lv_label_set_text(lbl_content, buf);
 }
 
 void jump_chapter(bool forward) {
-    extern volatile bool req_pause;
-    extern volatile bool is_playing;
-    if(is_playing) {
-        req_pause = true; // 阅读时强制暂停音乐，保护 SD 总线
-    }
     if (!current_book || file_size == 0) return;
-    uint32_t search_pos = current_pos;
     
-    if (forward) {
-        search_pos += 450; 
-        while (search_pos < file_size && search_pos < current_pos + 60000) { 
-            current_book.seek(search_pos);
-            char buf[512];
-            int len = current_book.read((uint8_t*)buf, 500);
-            if (len <= 0) break;
-            buf[len] = 0;
-            char* p1 = strstr(buf, "第");
-            if (p1) {
-                char* p2 = strstr(p1, "章");
-                if (p2 && (p2 - p1 < 30)) { 
-                    current_pos = search_pos + (p1 - buf);
-                    read_page(current_pos);
-                    return;
-                }
-            }
+    // 使用互斥锁保护 SD 卡访问，不再需要手动暂停音乐
+    if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        uint32_t search_pos = current_pos;
+        bool found_chapter = false;
+        
+        if (forward) {
             search_pos += 450;
+            while (search_pos < file_size && search_pos < current_pos + 60000) {
+                current_book.seek(search_pos);
+                static char buf[512];
+                int len = current_book.read((uint8_t*)buf, 500);
+                if (len <= 0) break;
+                buf[len] = 0;
+                char* p1 = strstr(buf, "第");
+                if (p1) {
+                    char* p2 = strstr(p1, "章");
+                    if (p2 && (p2 - p1 < 30)) {
+                        current_pos = search_pos + (p1 - buf);
+                        found_chapter = true;
+                        break;
+                    }
+                }
+                search_pos += 450;
 
-            vTaskDelay(pdMS_TO_TICKS(1)); 
+                vTaskDelay(pdMS_TO_TICKS(1));
+            }
+            if (!found_chapter) {
+                current_pos = (current_pos + 10000 < file_size) ? current_pos + 10000 : file_size - 500;
+            }
+        } else {
+            current_pos = (current_pos > 10000) ? current_pos - 10000 : 0;
         }
-        current_pos = (current_pos + 10000 < file_size) ? current_pos + 10000 : file_size - 500;
+        xSemaphoreGive(sd_mutex);
+        read_page(current_pos);
     } else {
-        current_pos = (current_pos > 10000) ? current_pos - 10000 : 0; 
+        // 如果无法获取互斥锁，显示错误信息
+        lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
     }
-    read_page(current_pos);
 }
 
 void open_book(const char* path) {
-    extern volatile bool req_pause;
-    extern volatile bool is_playing;
-    if(is_playing) {
-        req_pause = true; // 阅读时强制暂停音乐，保护 SD 总线
-    }
-    if (current_book) current_book.close();
-    current_book = SD_MMC.open(path, FILE_READ);
-    if (!current_book) return;
-    file_size = current_book.size();
-    
-    static bool style_inited = false;
-    if (!style_inited) {
-        lv_style_init(&style_read_text);
-        style_inited = true;
-    }
+    // 使用互斥锁保护 SD 卡访问，不再需要手动暂停音乐
+    if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        if (current_book) current_book.close();
+        current_book = SD_MMC.open(path, FILE_READ);
+        if (!current_book) {
+            xSemaphoreGive(sd_mutex);
+            return;
+        }
+        file_size = current_book.size();
+        xSemaphoreGive(sd_mutex);
+        
+        static bool style_inited = false;
+        if (!style_inited) {
+            lv_style_init(&style_read_text);
+            style_inited = true;
+        }
 
-    lv_style_set_text_font(&style_read_text, &my_font_cn_16);
-    lv_style_set_text_line_space(&style_read_text, line_spacing);
-    lv_obj_remove_style_all(lbl_content); 
-    lv_obj_add_style(lbl_content, &style_read_text, 0);
-    
-    init_backlight();
-    read_page(0);
-    lv_obj_add_flag(overlay_menu, LV_OBJ_FLAG_HIDDEN); 
-    lv_scr_load_anim(scr_reading, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
+        lv_style_set_text_font(&style_read_text, &my_font_cn_16);
+        lv_style_set_text_line_space(&style_read_text, line_spacing);
+        lv_obj_remove_style_all(lbl_content);
+        lv_obj_add_style(lbl_content, &style_read_text, 0);
+        
+        init_backlight();
+        read_page(0);
+        lv_obj_add_flag(overlay_menu, LV_OBJ_FLAG_HIDDEN);
+        lv_scr_load_anim(scr_reading, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
+    } else {
+        // 如果无法获取互斥锁，显示错误信息
+        if (lbl_content) {
+            lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
+        }
+    }
 }
 
 static void reading_screen_click_cb(lv_event_t * e) {
@@ -221,33 +243,38 @@ void refresh_bookshelf_ui() {
 
 void open_import_modal() {
     lv_obj_clean(list_sd_files);
-    File root = SD_MMC.open("/");
-    if (root) {
-        File file = root.openNextFile();
-        while (file) {
-            String fname = file.name();
-            if (!file.isDirectory() && (fname.endsWith(".txt") || fname.endsWith(".TXT"))) {
-                lv_obj_t * btn = lv_list_add_btn(list_sd_files, LV_SYMBOL_FILE, fname.c_str());
-                lv_obj_t * lbl = lv_obj_get_child(btn, 1);
-                if (lbl) lv_obj_add_style(lbl, &style_cn, 0);
-                
-                String full_path = "/" + fname;
-                char * path_ptr = strdup(full_path.c_str());
-                
-                lv_obj_add_event_cb(btn, [](lv_event_t *e){
-                    import_book((const char*)lv_event_get_user_data(e));
-                }, LV_EVENT_CLICKED, path_ptr);
+    
+    // 使用互斥锁保护 SD 卡访问
+    if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
+        File root = SD_MMC.open("/");
+        if (root) {
+            File file = root.openNextFile();
+            while (file) {
+                String fname = file.name();
+                if (!file.isDirectory() && (fname.endsWith(".txt") || fname.endsWith(".TXT"))) {
+                    lv_obj_t * btn = lv_list_add_btn(list_sd_files, LV_SYMBOL_FILE, fname.c_str());
+                    lv_obj_t * lbl = lv_obj_get_child(btn, 1);
+                    if (lbl) lv_obj_add_style(lbl, &style_cn, 0);
+                    
+                    String full_path = "/" + fname;
+                    char * path_ptr = strdup(full_path.c_str());
+                    
+                    lv_obj_add_event_cb(btn, [](lv_event_t *e){
+                        import_book((const char*)lv_event_get_user_data(e));
+                    }, LV_EVENT_CLICKED, path_ptr);
 
-                lv_obj_add_event_cb(btn, [](lv_event_t *e){
-                    char * ptr = (char*)lv_event_get_user_data(e);
-                    if(ptr) free(ptr);
-                }, LV_EVENT_DELETE, path_ptr);
+                    lv_obj_add_event_cb(btn, [](lv_event_t *e){
+                        char * ptr = (char*)lv_event_get_user_data(e);
+                        if(ptr) free(ptr);
+                    }, LV_EVENT_DELETE, path_ptr);
+                }
+                File next_file = root.openNextFile();
+                file.close();  // 显式释放上一轮的文件句柄
+                file = next_file;
             }
-            File next_file = root.openNextFile();
-            file.close();  // 显式释放上一轮的文件句柄
-            file = next_file;
+            root.close();  // 释放目录句柄
         }
-        root.close();  // 释放目录句柄
+        xSemaphoreGive(sd_mutex);
     }
     lv_obj_clear_flag(modal_import, LV_OBJ_FLAG_HIDDEN);
 }
@@ -255,9 +282,9 @@ void open_import_modal() {
 void build_reader_scene() {
     load_bookshelf();
 
-    if (scr_reader != NULL) { 
-        lv_obj_del(scr_reader); 
-        scr_reader = NULL; 
+    if (scr_reader != NULL) {
+        lv_obj_del_async(scr_reader);
+        scr_reader = NULL;
         
         list_bookshelf = NULL;
         modal_import = NULL;
@@ -308,8 +335,13 @@ void build_reader_scene() {
             lv_obj_add_flag(modal_menu, LV_OBJ_FLAG_HIDDEN);
             if(id == 0) open_import_modal();
             if(id == 1) { is_remove_mode = !is_remove_mode; refresh_bookshelf_ui(); }
-            if(id == 2) {if (current_book) current_book.close(); lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
-}
+            if(id == 2) {
+                if (current_book) current_book.close();
+                // 清理内存
+                lv_scr_load(scr_menu);
+                lv_obj_del_async(scr_reader);
+                scr_reader = NULL;
+            }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 
@@ -336,9 +368,9 @@ void build_reader_scene() {
     lv_label_set_text(l_ci, "取消"); lv_obj_center(l_ci);
     lv_obj_add_event_cb(btn_cls_imp, [](lv_event_t *e){ lv_obj_add_flag(modal_import, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, NULL);
 
-    if (scr_reading != NULL) { 
-        lv_obj_del(scr_reading); 
-        scr_reading = NULL; 
+    if (scr_reading != NULL) {
+        lv_obj_del_async(scr_reading);
+        scr_reading = NULL;
         lbl_content = NULL;
         overlay_menu = NULL;
         slider_brightness = NULL;

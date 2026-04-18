@@ -204,7 +204,7 @@ void build_market_and_shop_ui(lv_obj_t * parent_scr) {
                 long total_val = (long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
                 zh_player.goods_inventory[gid] += qty; 
                 zh_player.goods_buy_price[gid] = (total_val + cost) / zh_player.goods_inventory[gid]; 
-                char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【交易成功】\n买入 %d 份 %s，花费 %d 铜贝", qty, zh_goods_names[gid], cost); 
+                static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【交易成功】\n买入 %d 份 %s，花费 %d 铜贝", qty, zh_goods_names[gid], cost);
                 zh_log(log_buf);
             } else { zh_log("金币不足！"); }
 
@@ -223,7 +223,7 @@ void build_market_and_shop_ui(lv_obj_t * parent_scr) {
                 zh_player.gold += gain; 
                 zh_player.goods_inventory[gid] -= qty;
                 if (zh_player.goods_inventory[gid] == 0) zh_player.goods_buy_price[gid] = 0; 
-                char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【倾销成功】\n卖出 %d 份 %s，获得 %d 铜贝", qty, zh_goods_names[gid], gain); 
+                static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【倾销成功】\n卖出 %d 份 %s，获得 %d 铜贝", qty, zh_goods_names[gid], gain);
                 zh_log(log_buf);
             } else { zh_log("库存不足！"); }
 
@@ -232,14 +232,14 @@ void build_market_and_shop_ui(lv_obj_t * parent_scr) {
                 int fine = zh_player.gold / 2; 
                 zh_player.gold -= fine; 
                 zh_player.crime_value += qty * 10;
-                char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【盗窃被捕】\n罚没 %d 铜贝！罪恶值激增！", fine); 
+                static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【盗窃被捕】\n罚没 %d 铜贝！罪恶值激增！", fine);
                 zh_log(log_buf);
             } else { 
                 long total_val = (long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
                 zh_player.goods_inventory[gid] += qty; 
                 zh_player.goods_buy_price[gid] = total_val / zh_player.goods_inventory[gid]; 
                 zh_player.crime_value += qty * 2;
-                char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【顺手牵羊】\n成功偷得 %d 份 %s！", qty, zh_goods_names[gid]); 
+                static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【顺手牵羊】\n成功偷得 %d 份 %s！", qty, zh_goods_names[gid]);
                 zh_log(log_buf);
             }
         } 
@@ -305,7 +305,7 @@ static void open_market_modal_cb(lv_event_t *e) {
     market_item_id = gid; 
     market_mode = zh_market_state;
     int max_val = 0; 
-    char info_buf[256] = {0};
+    static char info_buf[256] = {0};
     
     if (market_mode == 1) { 
         // 购买
@@ -475,7 +475,7 @@ void open_npc_shop_ui(int npc_idx) {
             zh_player.crime_value += 350;
             zh_player.npc_status[c_npc->id] = 1;
             
-            char buf[256];
+            static char buf[256];
             snprintf(buf, sizeof(buf), "【洗劫得手】你一剑劈烂了柜台，洗劫了 %s，抢走了 %d 件物品！\n罪恶值暴涨！", c_npc->name, robbed_count);
             zh_log(buf);
             lv_obj_add_flag(modal_npc_shop, LV_OBJ_FLAG_HIDDEN);
@@ -490,7 +490,7 @@ void open_npc_shop_ui(int npc_idx) {
         if(npc->shop_type == 3 && (zh_data_fixed_items[i].type == 8 || zh_data_fixed_items[i].id >= 31)) can_sell = true;
         
         if(can_sell) {
-            char buf[64];
+            static char buf[64];
             int c_price = zh_data_fixed_items[i].price;
             if (is_subdued) c_price = c_price / 2;
             

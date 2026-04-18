@@ -37,6 +37,9 @@ lv_obj_t * scr_menu;
 lv_obj_t * scr_tower;
 lv_style_t style_cn;
 
+// SD 卡互斥锁
+SemaphoreHandle_t sd_mutex = NULL;
+
 // ==================== 触摸屏相关函数 ====================
 /**
  * @brief 初始化触摸屏
@@ -205,7 +208,8 @@ void setup() {
 
     // 显示缓冲区分配
     if (!allocateDisplayBuffers()) {
-        return; // 内存分配失败，程序终止
+        Serial.println("System Halted due to memory allocation failure!");
+        while(1) { delay(1000); }
     }
     
     // TFT显示屏初始化
@@ -243,6 +247,13 @@ void setup() {
     lv_style_init(&style_cn);
     lv_style_set_text_font(&style_cn, &my_font_cn_16);
 
+    // 初始化 SD 卡互斥锁
+    sd_mutex = xSemaphoreCreateMutex();
+    if (sd_mutex == NULL) {
+        Serial.println("FATAL ERROR: Failed to create SD mutex!");
+        while(1) { delay(1000); }
+    }
+    
     // 构建并加载主菜单
     build_main_menu();
     lv_scr_load(scr_menu);

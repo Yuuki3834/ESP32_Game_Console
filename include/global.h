@@ -4,6 +4,8 @@
 // 系统头文件
 #include <Arduino.h>
 #include <lvgl.h>
+#include <FreeRTOS.h>
+#include <semphr.h>
 
 // 全局变量声明
 extern lv_obj_t *scr_menu;
@@ -22,6 +24,9 @@ extern lv_obj_t *scr_zongheng;
 
 // 游戏状态变量
 extern bool is_tower_started;
+
+// SD 卡互斥锁
+extern SemaphoreHandle_t sd_mutex;
 
 // 主菜单函数
 void build_main_menu();

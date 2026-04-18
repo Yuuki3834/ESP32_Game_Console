@@ -33,7 +33,7 @@ void trigger_random_land_event(char* current_log_buf, size_t buf_size) {
     // 30%的概率触发路途随机事件
     if (rand() % 100 >= 30) return;
     int ev_id = rand() % 60; 
-    char ev_buf[256] = "";
+    static char ev_buf[256] = "";
     switch(ev_id) {
         // --- 财富增加类 ---
         case 0: { int g = rand()%100+50; zh_player.gold += g; snprintf(ev_buf, sizeof(ev_buf), "你在路边的草丛里捡到了一个钱袋！获得 %d 铜贝。", g); break; }

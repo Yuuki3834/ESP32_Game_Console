@@ -505,7 +505,7 @@ void reset_tower_game() {
 
 void build_tower_scene() {
     if (scr_tower != NULL) {
-        lv_obj_del(scr_tower);
+        lv_obj_del_async(scr_tower);
         scr_tower = NULL;
         map_cont = NULL;
         label_stats = NULL;
@@ -617,8 +617,20 @@ void build_tower_scene() {
     lv_obj_center(lbl_exit);
     lv_obj_add_event_cb(btn_exit, [](lv_event_t *e) {
         if (sys_modal) lv_obj_add_flag(sys_modal, LV_OBJ_FLAG_HIDDEN);
-        stop_walking(); // 替换为停止走路即可，不要执行 lv_timer_del
-        lv_scr_load_anim(scr_menu, LV_SCR_LOAD_ANIM_FADE_ON, 300, 0, false);
+        // 【修改】直接删除 walk_timer 并置为 NULL
+        if (walk_timer != NULL) {
+            lv_timer_del(walk_timer);
+            walk_timer = NULL;
+        }
+        // 保存游戏并清理内存
+        save_tower_game();
+        if (map_data != NULL) {
+            free(map_data);
+            map_data = NULL;
+        }
+        lv_scr_load(scr_menu);
+        lv_obj_del_async(scr_tower);
+        scr_tower = NULL;
     }, LV_EVENT_CLICKED, NULL);
 
     msg_modal = lv_obj_create(scr_tower);

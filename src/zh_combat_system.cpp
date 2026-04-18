@@ -316,16 +316,16 @@ static int get_actual_mp_cost(const ZH_Skill* sk) {
     int cost = sk->mp_cost;
     for(int i=0; i<4; i++) {
         int sid = zh_player.eq_passive_skills[i];
-        if(sid == 213) cost = cost * 0.7;
-        if(sid == 224) cost = cost * 0.85;
-        if(sid == 229) cost = cost * 0.6;
+        if(sid == 213) cost = cost * 70 / 100;
+        if(sid == 224) cost = cost * 85 / 100;
+        if(sid == 229) cost = cost * 60 / 100;
         if(sid == 253) cost = 0; 
     }
     return cost;
 }
 
 static void update_combat_status() {
-    char buf[128];
+    static char buf[128];
     const ZH_Monster* m = &zh_data_monsters[current_monster_id];
     snprintf(buf, sizeof(buf), "敌:[%s] Lv.%d\nHP:%d / %d", m->name, m->level, m_hp, m_max_hp);
     lv_label_set_text(lbl_monster_status, buf);
@@ -341,7 +341,7 @@ static void process_player_item(int inv_idx) {
     ZH_Item it = get_item_by_id(iid);
     zh_player.inventory[inv_idx] = -1; // 消耗道具
 
-    char log_buf[256];
+    static char log_buf[256];
     if(it.type == 6 || (it.type == 9 && it.id >= 326 && it.id <= 340)) { 
         zh_player.hp += it.value; if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
         if(it.id == 106 || it.id == 339 || it.id == 340 || it.id == 412) { zh_player.hp = zh_player.max_hp; zh_player.mp = zh_player.max_mp; }
@@ -403,7 +403,7 @@ static void end_combat(bool player_won, bool fled) {
 
     // 如果逃跑成功
     if (fled) { 
-        char flee_buf[256] = "【战斗结束】\n你狼狈地逃跑了！";
+        static char flee_buf[256] = "【战斗结束】\n你狼狈地逃跑了！";
         // 船医赛后恢复效果
         const ZH_Adjutant* adj_doc = get_adjutant_by_id(zh_player.eq_adj_doctor);
         if (adj_doc) {
@@ -432,14 +432,14 @@ static void end_combat(bool player_won, bool fled) {
     zh_player.exp += final_exp; zh_player.gold += final_gold;
     zh_player.current_monsters[combat_monster_idx] = -1; 
     process_quest_kill(m->id);
-    char win_buf[512];
+    static char win_buf[512];
     snprintf(win_buf, sizeof(win_buf), "击杀【%s】！\n经验+%d, 铜贝+%d", m->name, final_exp, final_gold);
 
     // 战利品掉落判定
     if (rand() % 100 < 35) { 
         int drop_id = get_random_drop_id();
         if (add_item_to_bag(drop_id)) { 
-            char drop_msg[128]; 
+            static char drop_msg[128];
             snprintf(drop_msg, sizeof(drop_msg), "\n掉落并拾取：【%s】！", get_item_by_id(drop_id).name); 
             strcat(win_buf, drop_msg); 
         }
@@ -451,7 +451,7 @@ static void end_combat(bool player_won, bool fled) {
         int heal = zh_player.max_hp * 0.2 * adj_doc->power_mult;
         zh_player.hp += heal;
         if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
-        char doc_msg[128];
+        static char doc_msg[128];
         snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你包扎伤口，恢复 %d 点生命。", adj_doc->name, heal);
         strcat(win_buf, doc_msg);
     }
@@ -462,7 +462,7 @@ static void end_combat(bool player_won, bool fled) {
 static void process_monster_turn() {
     if (m_hp <= 0) return; 
     const ZH_Monster* m = &zh_data_monsters[current_monster_id];
-    char log_buf[256];
+    static char log_buf[256];
     int p_atk, p_def, p_crit, p_dodge; get_player_battle_stats(&p_atk, &p_def, &p_crit, &p_dodge);
     
     // --- 罪恶惩罚：路人补刀 / 赏金猎人 ---
@@ -538,7 +538,7 @@ static void process_monster_turn() {
 }
 
 static void process_player_action(int action_type, int active_skill_idx) {
-    char log_buf[256]; const ZH_Monster* m = &zh_data_monsters[current_monster_id];
+    static char log_buf[256]; const ZH_Monster* m = &zh_data_monsters[current_monster_id];
 
     for(int i=0; i<4; i++) {
         if(zh_player.eq_passive_skills[i] == 218) zh_player.hp += zh_player.max_hp * 0.05;

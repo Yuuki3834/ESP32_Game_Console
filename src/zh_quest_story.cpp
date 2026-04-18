@@ -478,7 +478,10 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
                 int step = zh_player.story_progress[cur_view_id];
                 
                 // 安全边界检查，防止读出越界随机内存
-                if (step >= story_list[cur_view_id].step_count) return;
+                if (step >= story_list[cur_view_id].step_count) {
+                    zh_player.story_status[cur_view_id] = 2; // 强行修复为完成状态
+                    return;
+                }
                 
                 const StoryStep& ss = story_list[cur_view_id].steps[step];
                 
@@ -529,7 +532,7 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
                         zh_player.reputation += story_list[cur_view_id].r_rep;
                         if(story_list[cur_view_id].r_item > 0) add_item_to_bag(story_list[cur_view_id].r_item);
                         
-                        char w[128];
+                        static char w[128];
                         snprintf(w, sizeof(w), "【剧情完结】\n获得 %d 铜贝，声望暴涨！", story_list[cur_view_id].r_gold);
                         zh_log(w);
                     } else {
@@ -628,7 +631,7 @@ void open_tavern_bounty_board() {
     }
     int r_bounty = rand() % bounty_count;
     zh_player.active_bounty_id = r_bounty;
-    char buf[256];
+    static char buf[256];
     
     // 查找真实地名
     const char* loc_name = "未知秘境";
@@ -674,7 +677,7 @@ void process_quest_kill(int monster_id) {
                     
                     // 【新增】：杀够了直接通过 zh_log 提示玩家
                     if (zh_player.story_counter[i] == story_list[i].steps[step].count) {
-                        char q_msg[128];
+                        static char q_msg[128];
                         snprintf(q_msg, sizeof(q_msg), "【剧情更新】\n《%s》阶段目标已击杀完毕！", story_list[i].name);
                         zh_log(q_msg);
                     }
@@ -695,7 +698,7 @@ void process_quest_kill(int monster_id) {
                 if(zh_player.crime_value < 0) zh_player.crime_value = 0;
             }
             zh_player.active_bounty_id = -1; 
-            char buf[256];
+            static char buf[256];
             snprintf(buf, sizeof(buf), "【绝杀通缉犯！】\n你割下了首级！获得 %d 铜贝，声望(+%d)！", rew_g, rew_rep);
             zh_log(buf);
             refresh_quest_ui();
