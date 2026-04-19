@@ -153,8 +153,8 @@ struct ZH_Player
     int goods_buy_price[ZH_NUM_GOODS]; 
     int current_monsters[5];    
     int current_monsters_hp[5]; 
-    uint32_t npc_gift_bits[4];  
-    uint8_t npc_status[128];    
+    uint32_t npc_gift_bits[8];  
+    uint8_t npc_status[256];    
     
     int learned_skills[160];   
     int eq_active_skills[12];  

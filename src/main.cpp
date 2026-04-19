@@ -3,7 +3,6 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <TFT_eSPI.h>
-#include <esp_heap_caps.h>
 #include <SD_MMC.h>
 #include <LittleFS.h>
 #include "global.h"
@@ -147,6 +146,10 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
 void my_touchpad_read(lv_indev_drv_t *indev, lv_indev_data_t *data) {
     uint16_t tx, ty;
     if(getTouchPos(tx, ty)) {
+        // 【增加钳制】防止飞点
+        if(tx >= 240) tx = 239;
+        if(ty >= 320) ty = 319;
+        
         data->state = LV_INDEV_STATE_PR;
         data->point.x = tx;
         data->point.y = ty;
@@ -161,27 +164,19 @@ void my_touchpad_read(lv_indev_drv_t *indev, lv_indev_data_t *data) {
  * @return 是否分配成功
  */
 bool allocateDisplayBuffers() {
-    // 尝试使用内部RAM分配
-    buf1 = (lv_color_t*)heap_caps_malloc(240 * 160 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    buf2 = (lv_color_t*)heap_caps_malloc(240 * 160 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-    
-    // 如果内部RAM分配失败，使用外部RAM
+    // 使用标准malloc分配内存，ESP32底层会自动选择合适的内存区域
+    buf1 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
     if (!buf1) {
-        buf1 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
-        if (!buf1) {
-            Serial.println("FATAL ERROR: buf1 allocation failed!");
-            return false;
-        }
+        Serial.println("FATAL ERROR: buf1 allocation failed!");
+        return false;
     }
     
+    buf2 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
     if (!buf2) {
-        buf2 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
-        if (!buf2) {
-            Serial.println("FATAL ERROR: buf2 allocation failed!");
-            free(buf1);
-            buf1 = NULL;
-            return false;
-        }
+        Serial.println("FATAL ERROR: buf2 allocation failed!");
+        free(buf1);
+        buf1 = NULL;
+        return false;
     }
     
     return true;

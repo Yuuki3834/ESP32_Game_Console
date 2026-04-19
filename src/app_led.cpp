@@ -21,7 +21,7 @@ volatile bool led_is_on = false;
 volatile uint8_t led_r = 255, led_g = 255, led_b = 255;
 volatile int led_mode = 0;
 volatile uint32_t led_auto_off_time = 0;
-uint16_t custom_on_ms = 500, custom_off_ms = 500;
+volatile uint16_t custom_on_ms = 500, custom_off_ms = 500;
 
 Adafruit_NeoPixel pixels(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 TaskHandle_t ledTaskHandle;
@@ -230,11 +230,28 @@ void build_led_scene() {
     lv_obj_add_style(lbl_back, &style_cn, 0);
     lv_label_set_text(lbl_back, "返回"); lv_obj_center(lbl_back);
     lv_obj_add_event_cb(btn_back, [](lv_event_t *e){
-        if (led_ui_timer) lv_timer_pause(led_ui_timer); // ✅ 离开时暂停
-        // 清理内存
+        if (led_ui_timer) {
+            lv_timer_del(led_ui_timer);
+            led_ui_timer = NULL;
+        }
+        // 清理内存并立即断开所有全局 UI 指针
         lv_scr_load(scr_menu);
         lv_obj_del_async(scr_led);
         scr_led = NULL;
+        sw_power = NULL;
+        slider_r = NULL;
+        slider_g = NULL;
+        slider_b = NULL;
+        ta_r = NULL;
+        ta_g = NULL;
+        ta_b = NULL;
+        dd_mode = NULL;
+        dd_timer = NULL;
+        slider_on_time = NULL;
+        lbl_on_time = NULL;
+        slider_off_time = NULL;
+        lbl_off_time = NULL;
+        kb_num = NULL;
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * cont = lv_obj_create(scr_led);

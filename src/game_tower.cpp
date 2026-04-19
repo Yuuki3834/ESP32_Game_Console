@@ -1,5 +1,4 @@
 #include "global.h"
-#include <esp_heap_caps.h>
 #include <LittleFS.h>
 
 #define MAP_SIZE 11
@@ -61,15 +60,9 @@ void init_all_maps() {
     };
 
     if (map_data == NULL) {
-        map_data = (int (*)[MAP_SIZE][MAP_SIZE])heap_caps_malloc(
-            MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int),
-            MALLOC_CAP_SPIRAM
+        map_data = (int (*)[MAP_SIZE][MAP_SIZE])malloc(
+            MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)
         );
-        if (map_data == NULL) {
-            map_data = (int (*)[MAP_SIZE][MAP_SIZE])malloc(
-                MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)
-            );
-        }
     }
     
     // 【关键修复】彻底清空内存，防止随机野数据污染引擎
@@ -93,7 +86,7 @@ struct Point {
     int x, y;
 };
 
-Point walk_path[121];
+Point walk_path[128];
 int path_len = 0, path_index = 0;
 lv_timer_t * walk_timer = NULL;
 const int dx[] = {0, 0, -1, 1}, dy[] = {-1, 1, 0, 0};
@@ -425,19 +418,39 @@ bool has_tower_save() {
 void save_tower_game() {
     if (map_data == NULL) return;
 
-    File file = LittleFS.open("/tower.sav", FILE_WRITE);
+    // 先写入临时文件
+    File file = LittleFS.open("/tower_temp.sav", FILE_WRITE);
     if (!file) {
         Serial.println("存档文件创建失败");
         return;
     }
 
     SaveData save = {hero, current_floor};
-    file.write((uint8_t*)&save, sizeof(save));
-    file.write((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
+    size_t written1 = file.write((uint8_t*)&save, sizeof(save));
+    size_t written2 = file.write((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
     file.close();
 
-    Serial.println("✓ 游戏已存入 LittleFS");
-    show_message("【系统】\n当前游戏进度已成功存档！");
+    // 验证写入完整性
+    size_t expected_size = sizeof(save) + MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int);
+    if (written1 == sizeof(save) && written2 == MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)) {
+        // 删除旧存档（如果存在）
+        if (LittleFS.exists("/tower.sav")) {
+            LittleFS.remove("/tower.sav");
+        }
+        // 原子性重命名临时文件为正式文件
+        if (LittleFS.rename("/tower_temp.sav", "/tower.sav")) {
+            Serial.println("✓ 游戏已存入 LittleFS");
+            show_message("【系统】\n当前游戏进度已成功存档！");
+        } else {
+            Serial.println("重命名失败，存档异常！");
+            show_message("【系统】\n存档失败，请重试！");
+        }
+    } else {
+        Serial.println("写入异常，存档终止！");
+        show_message("【系统】\n存档写入失败，请重试！");
+        // 清理临时文件
+        LittleFS.remove("/tower_temp.sav");
+    }
 }
 
 bool load_tower_game() {
@@ -453,12 +466,8 @@ bool load_tower_game() {
     }
 
     if (map_data == NULL) {
-        map_data = (int (*)[MAP_SIZE][MAP_SIZE])heap_caps_malloc(
-            MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int), MALLOC_CAP_SPIRAM);
-        if (map_data == NULL) {
-            map_data = (int (*)[MAP_SIZE][MAP_SIZE])malloc(
-                MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
-        }
+        map_data = (int (*)[MAP_SIZE][MAP_SIZE])malloc(
+            MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
     }
 
     // 【关键修复】确保堆空间分配后强制清零，防崩溃
@@ -467,9 +476,15 @@ bool load_tower_game() {
     }
 
     SaveData save;
-    file.read((uint8_t*)&save, sizeof(save));
-    file.read((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
+    size_t read1 = file.read((uint8_t*)&save, sizeof(save));
+    size_t read2 = file.read((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
     file.close();
+
+    // 【增强修复】验证文件读取完整性，防止部分读取导致的数据损坏
+    if (read1 != sizeof(save) || read2 != MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)) {
+        Serial.println("存档文件读取不完整，可能已损坏");
+        return false;
+    }
 
     hero = save.hero;
     current_floor = save.current_floor;
@@ -522,6 +537,13 @@ void build_tower_scene() {
 
     scr_tower = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_tower, lv_color_hex(0x000000), 0);
+    // 【新增修复】：将 map_data 的释放绑定到屏幕销毁事件中
+    lv_obj_add_event_cb(scr_tower, [](lv_event_t * e) {
+        if (map_data != NULL) {
+            free(map_data);
+            map_data = NULL;
+        }
+    }, LV_EVENT_DELETE, NULL);
 
     walk_timer = lv_timer_create(walk_timer_cb, 80, NULL);
     lv_timer_pause(walk_timer);
@@ -622,12 +644,21 @@ void build_tower_scene() {
             lv_timer_del(walk_timer);
             walk_timer = NULL;
         }
-        // 保存游戏并清理内存
+        // 保存游戏
         save_tower_game();
-        if (map_data != NULL) {
-            free(map_data);
-            map_data = NULL;
-        }
+        
+        // 【删除这里的 free(map_data) 逻辑！】
+        
+        is_tower_started = false; // <--- 【关键修复】重置启动标志，防止二次进入崩溃！
+        
+        // 清空所有全局/静态 lv_obj_t* 指针
+        map_cont = NULL;
+        label_stats = NULL;
+        sys_modal = NULL;
+        shop_modal = NULL;
+        msg_modal = NULL;
+        lbl_msg_text = NULL;
+        
         lv_scr_load(scr_menu);
         lv_obj_del_async(scr_tower);
         scr_tower = NULL;

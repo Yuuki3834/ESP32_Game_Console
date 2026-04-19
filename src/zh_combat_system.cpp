@@ -243,6 +243,11 @@ static void add_combat_log(const char* msg) {
     size_t msg_len = strlen(msg);
     size_t buf_size = sizeof(combat_log_buffer);
     
+    // 终极保险：如果单条消息太长，直接抛弃旧日志
+    if (msg_len >= buf_size / 2) {
+        combat_log_buffer[0] = '\0'; // 遇到超长文本直接清空
+    }
+    
     // 动态检查剩余空间，留出充足余量 (包括换行符和终止符)
     if (strlen(combat_log_buffer) + msg_len + 2 >= buf_size) {
         // 当拼接后总长度可能越界时，进行安全的居中裁剪
@@ -319,7 +324,7 @@ static int get_actual_mp_cost(const ZH_Skill* sk) {
         if(sid == 213) cost = cost * 70 / 100;
         if(sid == 224) cost = cost * 85 / 100;
         if(sid == 229) cost = cost * 60 / 100;
-        if(sid == 253) cost = 0; 
+        // 删除了 if(sid == 253) cost = 0; 这一行
     }
     return cost;
 }
@@ -402,8 +407,9 @@ static void end_combat(bool player_won, bool fled) {
     player_temp_atk_buff = 0; player_temp_def_buff = 0; player_temp_frenzy_atk = 0;
 
     // 如果逃跑成功
-    if (fled) { 
-        static char flee_buf[256] = "【战斗结束】\n你狼狈地逃跑了！";
+    if (fled) {
+        static char flee_buf[256];
+        strcpy(flee_buf, "【战斗结束】\n你狼狈地逃跑了！");
         // 船医赛后恢复效果
         const ZH_Adjutant* adj_doc = get_adjutant_by_id(zh_player.eq_adj_doctor);
         if (adj_doc) {
@@ -412,9 +418,9 @@ static void end_combat(bool player_won, bool fled) {
             if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
             snprintf(flee_buf + strlen(flee_buf), 256 - strlen(flee_buf), "\n船医【%s】为你疗伤，恢复了 %d 点生命。", adj_doc->name, heal);
         }
-        zh_log(flee_buf); 
-        refresh_zongheng_ui(); 
-        return; 
+        zh_log(flee_buf);
+        lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
+        return;
     }
     
     // 如果玩家战死
@@ -438,10 +444,12 @@ static void end_combat(bool player_won, bool fled) {
     // 战利品掉落判定
     if (rand() % 100 < 35) { 
         int drop_id = get_random_drop_id();
-        if (add_item_to_bag(drop_id)) { 
+        if (add_item_to_bag(drop_id)) {
             static char drop_msg[128];
-            snprintf(drop_msg, sizeof(drop_msg), "\n掉落并拾取：【%s】！", get_item_by_id(drop_id).name); 
-            strcat(win_buf, drop_msg); 
+            // 提前计算，杜绝求值顺序带来的缓冲区覆写
+            const char* item_name = get_item_by_id(drop_id).name;
+            snprintf(drop_msg, sizeof(drop_msg), "\n掉落并拾取：【%s】！", item_name);
+            strncat(win_buf, drop_msg, sizeof(win_buf) - strlen(win_buf) - 1);
         }
     }
     
@@ -453,10 +461,10 @@ static void end_combat(bool player_won, bool fled) {
         if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
         static char doc_msg[128];
         snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你包扎伤口，恢复 %d 点生命。", adj_doc->name, heal);
-        strcat(win_buf, doc_msg);
+        strncat(win_buf, doc_msg, sizeof(win_buf) - strlen(win_buf) - 1);
     }
     
-    zh_log(win_buf); check_levelup(); refresh_zongheng_ui();
+    zh_log(win_buf); check_levelup(); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
 }
 
 static void process_monster_turn() {

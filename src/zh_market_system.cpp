@@ -201,9 +201,9 @@ void build_market_and_shop_ui(lv_obj_t * parent_scr) {
             int cost = price * qty;
             if (zh_player.gold >= cost) {
                 zh_player.gold -= cost; 
-                long total_val = (long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
-                zh_player.goods_inventory[gid] += qty; 
-                zh_player.goods_buy_price[gid] = (total_val + cost) / zh_player.goods_inventory[gid]; 
+                long long total_val = (long long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
+                zh_player.goods_inventory[gid] += qty;
+                zh_player.goods_buy_price[gid] = (total_val + cost) / zh_player.goods_inventory[gid];
                 static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【交易成功】\n买入 %d 份 %s，花费 %d 铜贝", qty, zh_goods_names[gid], cost);
                 zh_log(log_buf);
             } else { zh_log("金币不足！"); }
@@ -235,16 +235,16 @@ void build_market_and_shop_ui(lv_obj_t * parent_scr) {
                 static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【盗窃被捕】\n罚没 %d 铜贝！罪恶值激增！", fine);
                 zh_log(log_buf);
             } else { 
-                long total_val = (long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
-                zh_player.goods_inventory[gid] += qty; 
-                zh_player.goods_buy_price[gid] = total_val / zh_player.goods_inventory[gid]; 
+                long long total_val = (long long)zh_player.goods_buy_price[gid] * zh_player.goods_inventory[gid];
+                zh_player.goods_inventory[gid] += qty;
+                zh_player.goods_buy_price[gid] = total_val / zh_player.goods_inventory[gid];
                 zh_player.crime_value += qty * 2;
                 static char log_buf[128]; snprintf(log_buf, sizeof(log_buf), "【顺手牵羊】\n成功偷得 %d 份 %s！", qty, zh_goods_names[gid]);
                 zh_log(log_buf);
             }
         } 
         lv_obj_add_flag(modal_market, LV_OBJ_FLAG_HIDDEN);
-        refresh_zongheng_ui();
+        lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
     
     lv_obj_t * btn_market_canc = lv_btn_create(modal_market); 
@@ -362,12 +362,12 @@ static void open_market_modal_cb(lv_event_t *e) {
 void refresh_market_action_list(lv_obj_t * list_zh_action, const ZH_Location* loc) {
     if (zh_market_state == 0) { 
         if (zh_player.crime_value < 500 || zh_player.welfare_flag == 1) {
-            add_market_action_btn(list_zh_action, "买入商品", [](lv_event_t *e){ zh_market_state = 1; refresh_zongheng_ui(); }, 0x225522, NULL);
+            add_market_action_btn(list_zh_action, "买入商品", [](lv_event_t *e){ zh_market_state = 1; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x225522, NULL);
         } else {
             add_market_action_btn(list_zh_action, "买入商品 (遭到拒禁)", [](lv_event_t *e){ zh_log("商会总管：通缉犯滚出去！我们拒绝卖东西给你！"); }, 0x555555, NULL);
         }
-        add_market_action_btn(list_zh_action, "卖出商品", [](lv_event_t *e){ zh_market_state = 2; refresh_zongheng_ui(); }, 0x552222, NULL);
-        add_market_action_btn(list_zh_action, "尝试盗窃 (高风险)", [](lv_event_t *e){ zh_market_state = 3; refresh_zongheng_ui(); }, 0x8B0000, NULL);
+        add_market_action_btn(list_zh_action, "卖出商品", [](lv_event_t *e){ zh_market_state = 2; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x552222, NULL);
+        add_market_action_btn(list_zh_action, "尝试盗窃 (高风险)", [](lv_event_t *e){ zh_market_state = 3; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8B0000, NULL);
         
         if (zh_player.welfare_flag == 0) {
             add_market_action_btn(list_zh_action, "殴打护卫 (武力威压)", [](lv_event_t *e){
@@ -399,18 +399,20 @@ void refresh_market_action_list(lv_obj_t * list_zh_action, const ZH_Location* lo
         }
     } 
     else if (zh_market_state == 1) { 
-        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; refresh_zongheng_ui(); }, 0x555555, NULL);
+        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x555555, NULL);
         int start_idx = loc->param1, count = loc->param2; 
         if(start_idx + count > ZH_NUM_GOODS) count = ZH_NUM_GOODS - start_idx;
         for(int i = start_idx; i < start_idx + count; i++) {
-            char b_buf[64]; 
-            if(zh_player.welfare_flag == 1) snprintf(b_buf, sizeof(b_buf), "强购 %s (%d铜)", zh_goods_names[i], get_market_buy_price(i));
-            else snprintf(b_buf, sizeof(b_buf), "买入 %s (%d铜)", zh_goods_names[i], get_market_buy_price(i));
+            char b_buf[64];
+            // 提前计算，杜绝求值顺序带来的缓冲区覆写
+            int buy_price = get_market_buy_price(i);
+            if(zh_player.welfare_flag == 1) snprintf(b_buf, sizeof(b_buf), "强购 %s (%d铜)", zh_goods_names[i], buy_price);
+            else snprintf(b_buf, sizeof(b_buf), "买入 %s (%d铜)", zh_goods_names[i], buy_price);
             add_market_action_btn(list_zh_action, b_buf, open_market_modal_cb, 0x2c3e50, (void*)(intptr_t)i);
         }
     } 
     else if (zh_market_state == 2) { 
-        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; refresh_zongheng_ui(); }, 0x555555, NULL);
+        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x555555, NULL);
         bool has_goods = false;
         
         const ZH_Adjutant* adj_acc = get_adjutant_by_id(zh_player.eq_adj_accountant);
@@ -430,7 +432,7 @@ void refresh_market_action_list(lv_obj_t * list_zh_action, const ZH_Location* lo
         if(!has_goods) add_market_action_btn(list_zh_action, "货舱空空如也", [](lv_event_t *e){}, 0x555555, NULL);
     } 
     else if (zh_market_state == 3) { 
-        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; refresh_zongheng_ui(); }, 0x555555, NULL);
+        add_market_action_btn(list_zh_action, "<- 返回市场主页", [](lv_event_t *e){ zh_market_state = 0; lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x555555, NULL);
         int start_idx = loc->param1, count = loc->param2; 
         if(start_idx + count > ZH_NUM_GOODS) count = ZH_NUM_GOODS - start_idx;
         for(int i = start_idx; i < start_idx + count; i++) {
@@ -479,7 +481,7 @@ void open_npc_shop_ui(int npc_idx) {
             snprintf(buf, sizeof(buf), "【洗劫得手】你一剑劈烂了柜台，洗劫了 %s，抢走了 %d 件物品！\n罪恶值暴涨！", c_npc->name, robbed_count);
             zh_log(buf);
             lv_obj_add_flag(modal_npc_shop, LV_OBJ_FLAG_HIDDEN);
-            refresh_zongheng_ui();
+            lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         }, LV_EVENT_CLICKED, NULL);
     }
 
@@ -544,7 +546,7 @@ void open_npc_shop_ui(int npc_idx) {
                     }
                 }
                 lv_obj_add_flag(modal_npc_shop, LV_OBJ_FLAG_HIDDEN); 
-                refresh_zongheng_ui();
+                lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, LV_EVENT_CLICKED, (void*)(intptr_t)zh_data_fixed_items[i].id);
         }
     }
@@ -597,29 +599,38 @@ void open_npc_skill_shop_ui(int npc_idx) {
                     int cost = (sk->power_mult == 0 ? 3000 : sk->power_mult * 1000); 
                     if (subdued) cost /= 2;
 
-                    if(zh_player.gold >= cost) {
-                        zh_player.gold -= cost;
-                        for(int k = 0; k < 160; k++) {
-                            if(zh_player.learned_skills[k] <= 0) {
-                                zh_player.learned_skills[k] = skill_id;
-                                if(sk->type >= 1 && sk->type <= 4) {
-                                    for(int j = 0; j < 12; j++) {
-                                        if(zh_player.eq_active_skills[j] <= 0) { zh_player.eq_active_skills[j] = skill_id; break; }
-                                    }
-                                } else {
-                                    for(int j = 0; j < 4; j++) {
-                                        if(zh_player.eq_passive_skills[j] <= 0) { zh_player.eq_passive_skills[j] = skill_id; break; }
-                                    }
+                    // 先检查是否有空槽位
+                    int empty_slot = -1;
+                    for(int k = 0; k < 160; k++) {
+                        if(zh_player.learned_skills[k] <= 0) {
+                            empty_slot = k;
+                            break;
+                        }
+                    }
+                    
+                    if (empty_slot != -1) {
+                        if(zh_player.gold >= cost) {
+                            zh_player.gold -= cost;
+                            zh_player.learned_skills[empty_slot] = skill_id;
+                            
+                            if(sk->type >= 1 && sk->type <= 4) {
+                                for(int j = 0; j < 12; j++) {
+                                    if(zh_player.eq_active_skills[j] <= 0) { zh_player.eq_active_skills[j] = skill_id; break; }
                                 }
-                                zh_log(subdued ? "【强行夺取】\n导师屈辱地交出了卷轴，你掌握了新技能！" : "【顿悟】\n你成功掌握了新的技能！"); 
-                                break;
+                            } else {
+                                for(int j = 0; j < 4; j++) {
+                                    if(zh_player.eq_passive_skills[j] <= 0) { zh_player.eq_passive_skills[j] = skill_id; break; }
+                                }
                             }
+                            zh_log(subdued ? "【强行夺取】\n导师屈辱地交出了卷轴，你掌握了新技能！" : "【顿悟】\n你成功掌握了新的技能！");
+                        } else {
+                            zh_log(subdued ? "就算打死他，你这钱也不够学费啊。" : "学费不足，导师摇了摇手指。");
                         }
                     } else {
-                        zh_log(subdued ? "就算打死他，你这钱也不够学费啊。" : "学费不足，导师摇了摇手指。");
+                        zh_log("你的技能已经达到记忆极限，无法再学习了！");
                     }
                     lv_obj_add_flag(modal_npc_shop, LV_OBJ_FLAG_HIDDEN); 
-                    refresh_zongheng_ui();
+                    lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                 }, LV_EVENT_CLICKED, (void*)(intptr_t)zh_data_skills[i].id);
             }
         }

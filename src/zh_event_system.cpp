@@ -27,7 +27,9 @@ void trigger_random_land_event(char* current_log_buf, size_t buf_size) {
     if (zh_player.reputation >= 800 && rand() % 100 < 15) {
         int drop = get_random_drop_id();
         add_item_to_bag(drop);
-        snprintf(current_log_buf, buf_size, "【万民敬仰】当地总督亲自迎接了你，并赠送了宝物！\n获得：[%s]", get_item_by_id(drop).name);
+        // 提前计算，杜绝求值顺序带来的缓冲区覆写
+        const char* item_name = get_item_by_id(drop).name;
+        snprintf(current_log_buf, buf_size, "【万民敬仰】当地总督亲自迎接了你，并赠送了宝物！\n获得：[%s]", item_name);
         return;
     }
     // 30%的概率触发路途随机事件
@@ -96,7 +98,9 @@ void trigger_random_land_event(char* current_log_buf, size_t buf_size) {
         }
         case 42: {
             int drop = get_random_drop_id();
-            if(add_item_to_bag(drop)) snprintf(ev_buf, sizeof(ev_buf), "你在一片被遗忘的角落发现了闪光的东西，获得了：【%s】！", get_item_by_id(drop).name);
+            // 提前计算，杜绝求值顺序带来的缓冲区覆写
+            const char* item_name = get_item_by_id(drop).name;
+            if(add_item_to_bag(drop)) snprintf(ev_buf, sizeof(ev_buf), "你在一片被遗忘的角落发现了闪光的东西，获得了：【%s】！", item_name);
             else snprintf(ev_buf, sizeof(ev_buf), "你在地上发现了一件宝物，但背包太满了。");
             break;
         }

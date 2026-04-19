@@ -431,7 +431,9 @@ static void refresh_quest_detail() {
             snprintf(buf, sizeof(buf), "【市民委托 - 讨伐】\n\n请前往野外，保护城镇。\n目标: 猎杀【%s】\n进度: %d / %d 只", m_name, cur_cnt, req_cnt);
         } else if(zh_player.quest_id == 2) {
             int cur_have = get_item_count_in_bag(zh_player.quest_target); // 【修复4】：补全当前拥有数量
-            snprintf(buf, sizeof(buf), "【市民委托 - 搜集】\n\n请前往野外探索，搜集指定的物资。\n目标: 搜集【%s】\n完成后去找任何市民交付。\n进度: %d / %d 份", get_item_by_id(zh_player.quest_target).name, cur_have, req_cnt);
+            // 提前计算，杜绝求值顺序带来的缓冲区覆写
+            const char* item_name = get_item_by_id(zh_player.quest_target).name;
+            snprintf(buf, sizeof(buf), "【市民委托 - 搜集】\n\n请前往野外探索，搜集指定的物资。\n目标: 搜集【%s】\n完成后去找任何市民交付。\n进度: %d / %d 份", item_name, cur_have, req_cnt);
         } else if(zh_player.quest_id == 3) {
             const char* t_name = "未知区域";
             for(int j=0; j<zh_data_locations_count; j++) if(zh_data_locations[j].id == zh_player.quest_target) t_name = zh_data_locations[j].name;
@@ -546,8 +548,8 @@ void build_quest_ui(lv_obj_t* screen, lv_obj_t* parent_tab) {
             zh_log("通缉令无法在此放弃，请直接前往指定地点击杀目标！");
         }
         lv_obj_add_flag(modal_q_detail, LV_OBJ_FLAG_HIDDEN);
-        refresh_quest_ui();
-        refresh_zongheng_ui();
+        lv_async_call([](void*){ refresh_quest_ui(); }, NULL);
+        lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t* btn_c = lv_btn_create(modal_q_detail);
@@ -644,7 +646,7 @@ void open_tavern_bounty_board() {
     
     snprintf(buf, sizeof(buf), "【揭榜成功】\n你接下了针对【%s】的悬赏！\n老板：去【%s】找他，极其危险！", bounty_list[r_bounty].target_name, loc_name);
     zh_log(buf);
-    refresh_quest_ui();
+    lv_async_call([](void*){ refresh_quest_ui(); }, NULL);
 }
 
 int check_bounty_spawn(int loc_id) {
@@ -701,7 +703,7 @@ void process_quest_kill(int monster_id) {
             static char buf[256];
             snprintf(buf, sizeof(buf), "【绝杀通缉犯！】\n你割下了首级！获得 %d 铜贝，声望(+%d)！", rew_g, rew_rep);
             zh_log(buf);
-            refresh_quest_ui();
+            lv_async_call([](void*){ refresh_quest_ui(); }, NULL);
         }
     }
 }

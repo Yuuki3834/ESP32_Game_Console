@@ -150,7 +150,7 @@ void check_end_game() {
         else if (total < 5000000) title = "商业奇才：成立了自己的贸易公司！";
         else title = "一代传奇：你成了京城首屈一指的新巨头！";
         
-        static char buf[256];
+        static char buf[512];
         snprintf(buf, sizeof(buf), "40天期满！\n最终净资产: %ld 块\n结局: %s", total, title);
         show_bj_msg(buf);
         bj.day = 999;
@@ -166,7 +166,8 @@ void next_day(int new_loc) {
     bj.debt += (long)((long long)bj.debt * (long long)(bj.debt_rate * 1000) / 1000LL);
     
     int pr = rand() % 100;
-    static char event_msg[256] = "";
+    static char event_msg[256];
+    event_msg[0] = '\0'; // 每次进入函数时清空首字符
     
     if (pr < 5) {
         bj.cash += 3000; 
@@ -212,11 +213,29 @@ bool has_beijing_save() {
 }
 
 void save_beijing_game() {
-    File file = LittleFS.open("/beijing.sav", FILE_WRITE);
+    // 先写入临时文件
+    File file = LittleFS.open("/beijing_temp.sav", FILE_WRITE);
     if (!file) { show_bj_msg("保存失败！"); return; }
-    file.write((uint8_t*)&bj, sizeof(bj));
+    size_t written = file.write((uint8_t*)&bj, sizeof(bj));
     file.close();
-    show_bj_msg("游戏进度已成功保存至 LittleFS！");
+    
+    // 验证写入完整性
+    if (written == sizeof(bj)) {
+        // 删除旧存档（如果存在）
+        if (LittleFS.exists("/beijing.sav")) {
+            LittleFS.remove("/beijing.sav");
+        }
+        // 原子性重命名临时文件为正式文件
+        if (LittleFS.rename("/beijing_temp.sav", "/beijing.sav")) {
+            show_bj_msg("游戏进度已成功保存至 LittleFS！");
+        } else {
+            show_bj_msg("重命名失败，存档异常！");
+        }
+    } else {
+        show_bj_msg("写入异常，存档终止！");
+        // 清理临时文件
+        LittleFS.remove("/beijing_temp.sav");
+    }
 }
 
 bool load_beijing_game() {
@@ -620,12 +639,34 @@ void build_beijing_scene() {
             if(id==1) { save_beijing_game(); lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN); }
             if(id==2) { reset_beijing_game(); lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN); }
             if(id==3) {
-                // 保存游戏并清理内存
                 save_beijing_game();
                 lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN);
-                lv_scr_load(scr_menu);
-                lv_obj_del_async(scr_beijing);
+                
+                // 【修复】：先暂存指针，或者先调用 del_async 再置空
+                lv_obj_t * temp_scr = scr_beijing;
+                
+                // 清空所有全局/静态 lv_obj_t* 指针
                 scr_beijing = NULL;
+                lbl_bj_status = NULL;
+                tab_market = NULL;
+                tab_bag = NULL;
+                tab_move = NULL;
+                tab_place = NULL;
+                list_market = NULL;
+                list_bag = NULL;
+                modal_msg = NULL;
+                lbl_msg_content = NULL;
+                menu_overlay = NULL;
+                modal_trade = NULL;
+                lbl_trade_title = NULL;
+                lbl_trade_info = NULL;
+                lbl_trade_qty = NULL;
+                modal_sub = NULL;
+                list_sub = NULL;
+                lbl_sub_title = NULL;
+                
+                lv_scr_load(scr_menu);
+                lv_obj_del_async(temp_scr); // 【修复】：传递有效指针给LVGL
             }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }

@@ -86,6 +86,45 @@ int editing_adj_type = 0;
 lv_obj_t * modal_forge = NULL;
 lv_obj_t * list_forge_recipes = NULL;
 
+void reset_zongheng_ui_pointers() {
+    scr_zongheng = NULL;
+    lbl_zh_top_status = NULL;
+    lbl_zh_log = NULL;
+    lbl_zh_detail_status = NULL;
+    tab_zh_move = NULL;
+    tab_zh_action = NULL;
+    tab_zh_bag = NULL;
+    tab_zh_status = NULL;
+    tab_zh_quest = NULL;
+    list_zh_move = NULL;
+    list_zh_action = NULL;
+    list_zh_bag = NULL;
+    modal_zh_menu = NULL;
+    modal_zh_map = NULL;
+    list_map_locs = NULL;
+    modal_sailing = NULL;
+    lbl_sailing_info = NULL;
+    sailing_target_id = -1;
+    sailing_origin_id = -1;
+    modal_npc = NULL;
+    lbl_npc_name = NULL;
+    lbl_npc_dialogue = NULL;
+    cont_npc_actions = NULL;
+    modal_item_detail = NULL;
+    lbl_item_detail_title = NULL;
+    lbl_item_detail_desc = NULL;
+    selected_inventory_idx = -1;
+    modal_zh_skill_cfg = NULL;
+    list_skill_slots = NULL;
+    modal_zh_skill_select = NULL;
+    list_learned_skills = NULL;
+    modal_adjutant = NULL;
+    list_adj_slots = NULL;
+    list_adj_roster = NULL;
+    modal_forge = NULL;
+    list_forge_recipes = NULL;
+}
+
 const ZH_Skill* get_skill_ptr(int id) {
     if(id <= 0) return NULL;
     for(int i=0; i<zh_data_skills_count; i++) if(zh_data_skills[i].id == id) return &zh_data_skills[i];
@@ -128,7 +167,9 @@ static bool craft_item(int recipe_idx) {
     
     add_item_to_bag(r.result_item_id);
     char buf[128];
-    snprintf(buf, sizeof(buf), "【锻造成功】\n铁锤叮当声后，你获得了绝世神兵：\n[%s]！", get_item_by_id(r.result_item_id).name);
+    // 提前计算，杜绝求值顺序带来的缓冲区覆写
+    const char* item_name = get_item_by_id(r.result_item_id).name;
+    snprintf(buf, sizeof(buf), "【锻造成功】\n铁锤叮当声后，你获得了绝世神兵：\n[%s]！", item_name);
     zh_log(buf);
     return true;
 }
@@ -185,7 +226,7 @@ static void open_forge_ui() {
             int r_idx = (int)(intptr_t)lv_event_get_user_data(e);
             if(craft_item(r_idx)) {
                 lv_obj_add_flag(modal_forge, LV_OBJ_FLAG_HIDDEN);
-                refresh_zongheng_ui();
+                lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
@@ -210,7 +251,7 @@ void open_adjutant_roster() {
         else if(editing_adj_type == 4) zh_player.eq_adj_accountant = 0;
         lv_obj_add_flag(list_adj_roster, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(list_adj_slots, LV_OBJ_FLAG_HIDDEN);
-        refresh_zongheng_ui();
+        lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * btn_dismiss = lv_list_add_btn(list_adj_roster, LV_SYMBOL_TRASH, "解雇所有闲置的普通副官");
@@ -232,7 +273,7 @@ void open_adjutant_roster() {
         zh_log("已清理麾下所有未上任的普通副官！");
         lv_obj_add_flag(list_adj_roster, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(list_adj_slots, LV_OBJ_FLAG_HIDDEN);
-        refresh_zongheng_ui();
+        lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
 
     bool has_adj = false;
@@ -257,7 +298,7 @@ void open_adjutant_roster() {
                     
                     lv_obj_add_flag(list_adj_roster, LV_OBJ_FLAG_HIDDEN);
                     lv_obj_clear_flag(list_adj_slots, LV_OBJ_FLAG_HIDDEN);
-                    refresh_zongheng_ui();
+                    lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                 }, LV_EVENT_CLICKED, (void*)(intptr_t)aid);
             }
         }
@@ -345,7 +386,7 @@ void open_skill_selector() {
         if(editing_skill_type == 1) zh_player.eq_active_skills[editing_skill_idx] = 0;
         else zh_player.eq_passive_skills[editing_skill_idx] = 0;
         lv_obj_add_flag(modal_zh_skill_select, LV_OBJ_FLAG_HIDDEN);
-        refresh_skill_cfg_list(); refresh_zongheng_ui();
+        refresh_skill_cfg_list(); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
 
     bool has_skill = false;
@@ -372,7 +413,7 @@ void open_skill_selector() {
                         zh_player.eq_passive_skills[editing_skill_idx] = selected_id;
                     }
                     lv_obj_add_flag(modal_zh_skill_select, LV_OBJ_FLAG_HIDDEN);
-                    refresh_skill_cfg_list(); refresh_zongheng_ui();
+                    refresh_skill_cfg_list(); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                 }, LV_EVENT_CLICKED, (void*)(intptr_t)sid);
             }
         }
@@ -385,7 +426,11 @@ void open_skill_selector() {
     lv_obj_clear_flag(modal_zh_skill_select, LV_OBJ_FLAG_HIDDEN);
 }
 
-void zh_log(const char * msg) { lv_label_set_text(lbl_zh_log, msg); }
+void zh_log(const char * msg) { 
+    if (lbl_zh_log != NULL) {
+        lv_label_set_text(lbl_zh_log, msg);
+    }
+}
 
 const ZH_Location* get_current_loc() {
     for (int i = 0; i < zh_data_locations_count; i++) if (zh_data_locations[i].id == zh_player.location_id) return &zh_data_locations[i];
@@ -426,7 +471,7 @@ void player_die() {
         }
     }
     zh_player.location_id = target_church; 
-    spawn_monsters_for_loc(target_church); refresh_zongheng_ui();
+    spawn_monsters_for_loc(target_church); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
 }
 
 void spawn_monsters_for_loc(int loc_id) {
@@ -500,7 +545,7 @@ void populate_map_list() {
             lv_obj_add_event_cb(btn, [](lv_event_t *e){
                 zh_player.location_id = (int)(intptr_t)lv_event_get_user_data(e);
                 lv_obj_add_flag(modal_zh_map, LV_OBJ_FLAG_HIDDEN); zh_market_state = 0; 
-                spawn_monsters_for_loc(zh_player.location_id); zh_log("你快速抵达了目的地。"); refresh_zongheng_ui();
+                spawn_monsters_for_loc(zh_player.location_id); zh_log("你快速抵达了目的地。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, LV_EVENT_CLICKED, (void*)(intptr_t)zh_data_locations[i].id);
         }
     }
@@ -529,17 +574,33 @@ void refresh_zongheng_ui() {
     const ZH_Adjutant* a3 = get_adjutant_by_id(zh_player.eq_adj_doctor);
     const ZH_Adjutant* a4 = get_adjutant_by_id(zh_player.eq_adj_accountant);
 
+    // 提前计算，杜绝求值顺序带来的缓冲区覆写
+    int t_atk = get_total_atk();
+    int t_def = get_total_def();
+    int level_exp = zh_player.level * 100;
+    const char* sailor_set = has_sailor_set() ? "[水手]" : "";
+    const char* steel_set = has_steel_set() ? "[精钢]" : "";
+    const char* head_name = get_eq_name(zh_player.eq_head);
+    const char* chest_name = get_eq_name(zh_player.eq_chest);
+    const char* legs_name = get_eq_name(zh_player.eq_legs);
+    const char* shoes_name = get_eq_name(zh_player.eq_shoes);
+    const char* weapon_name = get_eq_name(zh_player.eq_weapon);
+    const char* adj1_name = a1 ? a1->name : "空";
+    const char* adj2_name = a2 ? a2->name : "空";
+    const char* adj3_name = a3 ? a3->name : "空";
+    const char* adj4_name = a4 ? a4->name : "空";
+    
     static char detail_buf[1024];
-    snprintf(detail_buf, sizeof(detail_buf), 
+    snprintf(detail_buf, sizeof(detail_buf),
         "【详细属性】\n等 级: %d (EXP: %d/%d)\n生 命: %d / %d | 魔 法: %d / %d\n"
         "攻 击: %d | 防 御: %d\n暴 击: %d%% | 闪 避: %d%%\n套 装: %s%s\n"
         "存款: %ld | 负债: %ld\n声望(名誉): %d | 罪恶(通缉): %d\n\n【装备】\n"
         "头: %s | 胸: %s\n腿: %s | 鞋: %s\n武: %s\n\n【副官】\n航海: %s | 冲锋: %s\n船医: %s | 会计: %s",
-        zh_player.level, zh_player.exp, zh_player.level * 100, zh_player.hp, zh_player.max_hp, zh_player.mp, zh_player.max_mp,
-        get_total_atk(), get_total_def(), zh_player.base_crit, zh_player.base_dodge, has_sailor_set() ? "[水手]" : "", has_steel_set() ? "[精钢]" : "",
+        zh_player.level, zh_player.exp, level_exp, zh_player.hp, zh_player.max_hp, zh_player.mp, zh_player.max_mp,
+        t_atk, t_def, zh_player.base_crit, zh_player.base_dodge, sailor_set, steel_set,
         zh_player.bank_gold, zh_player.debt, zh_player.reputation, zh_player.crime_value,
-        get_eq_name(zh_player.eq_head), get_eq_name(zh_player.eq_chest), get_eq_name(zh_player.eq_legs), get_eq_name(zh_player.eq_shoes), get_eq_name(zh_player.eq_weapon),
-        a1 ? a1->name : "空", a2 ? a2->name : "空", a3 ? a3->name : "空", a4 ? a4->name : "空"
+        head_name, chest_name, legs_name, shoes_name, weapon_name,
+        adj1_name, adj2_name, adj3_name, adj4_name
     );
     lv_label_set_text(lbl_zh_detail_status, detail_buf);
 
@@ -566,7 +627,7 @@ void refresh_zongheng_ui() {
                 snprintf(buf, sizeof(buf), "【%s】\n%s", nloc->name, nloc->desc); 
                 // 修复：传入缓冲区大小
                 trigger_random_land_event(buf, sizeof(buf)); 
-                zh_log(buf); refresh_zongheng_ui();
+                zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, LV_EVENT_CLICKED, (void*)(intptr_t)tid);
         }
     }
@@ -615,41 +676,45 @@ void refresh_zongheng_ui() {
                 }
 
                 if (loot_id != -1) {
-                    if(add_item_to_bag(loot_id)) { 
-                        char buf[128]; snprintf(buf, sizeof(buf), "【搜集】\n你仔细摸索，获得了 【%s】！", get_item_by_id(loot_id).name); zh_log(buf); 
+                    if(add_item_to_bag(loot_id)) {
+                        char buf[128];
+                        // 提前计算，杜绝求值顺序带来的缓冲区覆写
+                        const char* item_name = get_item_by_id(loot_id).name;
+                        snprintf(buf, sizeof(buf), "【搜集】\n你仔细摸索，获得了 【%s】！", item_name);
+                        zh_log(buf);
                     } else {
                         zh_log("背包已满，无法拾取材料。");
                     }
                 }
-                refresh_zongheng_ui();
+                lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, 0x27ae60);
         }
 
         if (loc->action_type == 13) {
             add_act_btn("打劫路人 (高风险)", [](lv_event_t *e){ 
                 int gain = rand() % 500 + 100; zh_player.gold += gain; zh_player.crime_value += 20; 
-                char buf[128]; snprintf(buf, sizeof(buf), "抢到 %d 铜贝！罪恶+20！", gain); zh_log(buf); refresh_zongheng_ui(); 
+                char buf[128]; snprintf(buf, sizeof(buf), "抢到 %d 铜贝！罪恶+20！", gain); zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, 0x8B0000);
         }
     } else if (loc->action_type == 5) { 
-        add_act_btn("存入所有铜贝", [](lv_event_t *e){ zh_player.bank_gold += zh_player.gold; zh_player.gold = 0; zh_log("已存入。换港口结5%利息。"); refresh_zongheng_ui(); });
-        add_act_btn("取出所有存款", [](lv_event_t *e){ zh_player.gold += zh_player.bank_gold; zh_player.bank_gold = 0; zh_log("存款已取出。"); refresh_zongheng_ui(); });
-        add_act_btn("贷款 1000 铜贝", [](lv_event_t *e){ zh_player.debt += 1000; zh_player.gold += 1000; zh_log("放款成功。换港口扣7.5%利息。"); refresh_zongheng_ui(); });
-        add_act_btn("偿还 1000 欠款", [](lv_event_t *e){ 
-            if(zh_player.debt <= 0) zh_log("没有欠款。"); else if(zh_player.gold >= 1000) { zh_player.gold -= 1000; zh_player.debt -= 1000; if(zh_player.debt<0) zh_player.debt=0; zh_log("还款成功！"); } else zh_log("铜贝不足！"); refresh_zongheng_ui(); 
+        add_act_btn("存入所有铜贝", [](lv_event_t *e){ zh_player.bank_gold += zh_player.gold; zh_player.gold = 0; zh_log("已存入。换港口结5%利息。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); });
+        add_act_btn("取出所有存款", [](lv_event_t *e){ zh_player.gold += zh_player.bank_gold; zh_player.bank_gold = 0; zh_log("存款已取出。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); });
+        add_act_btn("贷款 1000 铜贝", [](lv_event_t *e){ zh_player.debt += 1000; zh_player.gold += 1000; zh_log("放款成功。换港口扣7.5%利息。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); });
+        add_act_btn("偿还 1000 欠款", [](lv_event_t *e){
+            if(zh_player.debt <= 0) zh_log("没有欠款。"); else if(zh_player.gold >= 1000) { zh_player.gold -= 1000; zh_player.debt -= 1000; if(zh_player.debt<0) zh_player.debt=0; zh_log("还款成功！"); } else zh_log("铜贝不足！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         });
-        add_act_btn("1200铜贝 换 1银贝", [](lv_event_t *e){ if(zh_player.gold >= 1200) { zh_player.gold -= 1200; zh_player.silver += 1; zh_log("兑换成功。"); } else zh_log("铜贝不足！"); refresh_zongheng_ui(); }, 0x555500);
-        add_act_btn("1银贝 换 1000铜贝", [](lv_event_t *e){ if(zh_player.silver >= 1) { zh_player.silver -= 1; zh_player.gold += 1000; zh_log("兑换成功！"); } else zh_log("没有银贝！"); refresh_zongheng_ui(); }, 0x555500);
+        add_act_btn("1200铜贝 换 1银贝", [](lv_event_t *e){ if(zh_player.gold >= 1200) { zh_player.gold -= 1200; zh_player.silver += 1; zh_log("兑换成功。"); } else zh_log("铜贝不足！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x555500);
+        add_act_btn("1银贝 换 1000铜贝", [](lv_event_t *e){ if(zh_player.silver >= 1) { zh_player.silver -= 1; zh_player.gold += 1000; zh_log("兑换成功！"); } else zh_log("没有银贝！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x555500);
     } else if (loc->action_type == 14) { 
-        add_act_btn("查看悬赏榜(世界Boss)", [](lv_event_t *e){ open_tavern_bounty_board(); refresh_zongheng_ui(); }, 0x8B0000);
+        add_act_btn("查看悬赏榜(世界Boss)", [](lv_event_t *e){ open_tavern_bounty_board(); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8B0000);
     } else if (loc->action_type == 7) { 
-        add_act_btn("领救济", [](lv_event_t *e){ if(zh_player.gold < 100) { zh_player.gold += 50; zh_log("愿主保佑。"); } else zh_log("留给需要的人吧。"); refresh_zongheng_ui(); });
+        add_act_btn("领救济", [](lv_event_t *e){ if(zh_player.gold < 100) { zh_player.gold += 50; zh_log("愿主保佑。"); } else zh_log("留给需要的人吧。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); });
     } else if (loc->action_type == 8) { 
-        add_act_btn("赌大小 (下注100铜)", [](lv_event_t *e){ if(zh_player.gold >= 100) { zh_player.gold -= 100; if(rand()%2 == 0) { zh_player.gold += 200; zh_log("赢了！"); } else zh_log("通吃！"); } else zh_log("滚出去！"); refresh_zongheng_ui(); }, 0x8B0000);
+        add_act_btn("赌大小 (下注100铜)", [](lv_event_t *e){ if(zh_player.gold >= 100) { zh_player.gold -= 100; if(rand()%2 == 0) { zh_player.gold += 200; zh_log("赢了！"); } else zh_log("通吃！"); } else zh_log("滚出去！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8B0000);
     } else if (loc->action_type == 10) { 
         refresh_market_action_list(list_zh_action, loc);
     } else if (loc->action_type == 9) { 
-        add_act_btn("上床睡觉 (全恢复)", [](lv_event_t *e){ zh_player.hp = zh_player.max_hp; zh_player.mp = zh_player.max_mp; zh_log("睡了一觉，精神百倍，伤势与法力全部恢复！"); refresh_zongheng_ui(); }, 0x884400);
+        add_act_btn("上床睡觉 (全恢复)", [](lv_event_t *e){ zh_player.hp = zh_player.max_hp; zh_player.mp = zh_player.max_mp; zh_log("睡了一觉，精神百倍，伤势与法力全部恢复！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x884400);
     }
 
     if (loc->action_type == 14 || loc->action_type == 0 || loc->action_type == 13) {
@@ -676,7 +741,7 @@ void refresh_zongheng_ui() {
                 zh_player.adjutants_roster[empty_slot] = new_adj_id;
                 char buf[128];
                 snprintf(buf, sizeof(buf), "【招募成功】\n花费 1 枚银贝，你成功招募了: %s！\n请在菜单-副官中任命。", zh_data_adjutants[r_type].name);
-                zh_log(buf); refresh_zongheng_ui();
+                zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             } else {
                 zh_log("银贝不足！副官招募需要硬通货！");
             }
@@ -744,7 +809,7 @@ void refresh_zongheng_ui() {
                     zh_log(npc->dialogs[d_idx]);
                 }
             }
-            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui();
+            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         }, 0x2980b9);
 
         if(npc->shop_type == 0 && npc->special_func == 0 && !is_injured) {
@@ -765,7 +830,10 @@ void refresh_zongheng_ui() {
                     } else if(zh_player.quest_id == 2) { 
                         zh_player.quest_target = (rand()%2==0)? 108 : 401; // 止血草 或 劣质铜矿
                         zh_player.quest_progress = (0 << 16) | 3; 
-                        char buf[128]; snprintf(buf, sizeof(buf), "【接受委托 - 搜集】\n请去野外搜集 3 份【%s】，完成后带回来交给我或任何人。", get_item_by_id(zh_player.quest_target).name);
+                        char buf[128];
+                        // 提前计算，杜绝求值顺序带来的缓冲区覆写
+                        const char* item_name = get_item_by_id(zh_player.quest_target).name;
+                        snprintf(buf, sizeof(buf), "【接受委托 - 搜集】\n请去野外搜集 3 份【%s】，完成后带回来交给我或任何人。", item_name);
                         zh_log(buf);
                     } else { 
                         zh_player.quest_target = (zh_player.location_id / 40) * 40 + (rand()%6); 
@@ -775,7 +843,7 @@ void refresh_zongheng_ui() {
                         char buf[128]; snprintf(buf, sizeof(buf), "【接受委托 - 送货】\n帮我把这个加急包裹送到【%s】去。", t_name);
                         zh_log(buf);
                     }
-                    lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_quest_ui(); refresh_zongheng_ui();
+                    lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_quest_ui(); }, NULL); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                 }, 0x16a085);
             }
             else if (zh_player.quest_id == 2) {
@@ -792,7 +860,7 @@ void refresh_zongheng_ui() {
                         zh_player.quest_id = 0; zh_player.quest_target = 0; zh_player.quest_progress = 0;
                         zh_log("【委托完成】你上交了物资！获得 800 铜贝与声望！");
                     } else zh_log("包里物资数量不够！再去野外找找！");
-                    lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_quest_ui(); refresh_zongheng_ui();
+                    lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_quest_ui(); }, NULL); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                 }, 0x27ae60);
             }
             else if (zh_player.quest_id == 1) {
@@ -803,7 +871,7 @@ void refresh_zongheng_ui() {
                         zh_player.gold += 1000; zh_player.reputation += 15;
                         zh_player.quest_id = 0; zh_player.quest_target = 0; zh_player.quest_progress = 0;
                         zh_log("【委托完成】感谢你保护了大家！获得 1000 铜贝与大量声望！");
-                        lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_quest_ui(); refresh_zongheng_ui();
+                        lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_quest_ui(); }, NULL); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
                     }, 0x27ae60);
                 }
             }
@@ -814,7 +882,7 @@ void refresh_zongheng_ui() {
                 zh_player.gold += 500; zh_player.reputation += 8;
                 zh_player.quest_id = 0; zh_player.quest_target = 0; zh_player.quest_progress = 0;
                 zh_log("【委托完成】包裹已送达！收件人支付了 500 铜贝辛苦费。");
-                lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_quest_ui(); refresh_zongheng_ui();
+                lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_quest_ui(); }, NULL); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
             }, 0x27ae60);
         }
 
@@ -832,9 +900,9 @@ void refresh_zongheng_ui() {
         }
         
         if(npc->special_func > 0) {
-            if(npc->special_func == 1) add_n_btn("祈祷疗伤 (20铜)", [](lv_event_t *e){ if(zh_player.gold >= 20){ zh_player.gold -= 20; zh_player.hp = zh_player.max_hp; zh_player.mp = zh_player.max_mp; zh_player.crime_value = 0; zh_log("神父为你洗去了伤痛，并赦免了你的罪恶。"); } else zh_log("钱不够。"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui(); }, 0x8e44ad);
-            else if(npc->special_func == 2) add_n_btn("花钱消灾 (500铜)", [](lv_event_t *e){ if(zh_player.crime_value <= 0) zh_log("你是个良民。"); else if(zh_player.gold >= 500){ zh_player.gold -= 500; zh_player.crime_value = 0; zh_log("治安官收下了钱。"); } else zh_log("没钱滚蛋！"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui(); }, 0x8e44ad);
-            else if(npc->special_func == 3) add_n_btn("预测物价 (50铜)", [](lv_event_t *e){ if(zh_player.gold >= 50){ zh_player.gold -= 50; zh_log("占星师：我看某些货品即将大涨..."); } else zh_log("穷鬼走开。"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui(); }, 0x8e44ad);
+            if(npc->special_func == 1) add_n_btn("祈祷疗伤 (20铜)", [](lv_event_t *e){ if(zh_player.gold >= 20){ zh_player.gold -= 20; zh_player.hp = zh_player.max_hp; zh_player.mp = zh_player.max_mp; zh_player.crime_value = 0; zh_log("神父为你洗去了伤痛，并赦免了你的罪恶。"); } else zh_log("钱不够。"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8e44ad);
+            else if(npc->special_func == 2) add_n_btn("花钱消灾 (500铜)", [](lv_event_t *e){ if(zh_player.crime_value <= 0) zh_log("你是个良民。"); else if(zh_player.gold >= 500){ zh_player.gold -= 500; zh_player.crime_value = 0; zh_log("治安官收下了钱。"); } else zh_log("没钱滚蛋！"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8e44ad);
+            else if(npc->special_func == 3) add_n_btn("预测物价 (50铜)", [](lv_event_t *e){ if(zh_player.gold >= 50){ zh_player.gold -= 50; zh_log("占星师：我看某些货品即将大涨..."); } else zh_log("穷鬼走开。"); lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, 0x8e44ad);
         }
 
         add_n_btn("尝试盗窃", [](lv_event_t *e){
@@ -846,14 +914,14 @@ void refresh_zongheng_ui() {
                 zh_player.hp -= 20; zh_player.crime_value += 30; zh_log("被当场抓获！挨了一顿打，罪恶飙升！");
                 if(zh_player.hp <= 0) player_die();
             }
-            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui();
+            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         }, 0xd35400);
 
         add_n_btn("发起攻击 (高危)", [](lv_event_t *e){
             const ZH_NPC*npc = &zh_data_npcs[current_npc_idx];
             if (zh_player.npc_status[npc->id] == 1) zh_log("你狠狠踢了一脚倒在地上的他，他痛苦地蜷缩起来。别打死人了！");
             else { zh_player.npc_status[npc->id] = 1; zh_player.crime_value += 50; char buf[256]; snprintf(buf, sizeof(buf), "你一拳打翻了 %s！对方倒地！\n你引发了严重的骚乱，罪恶值飙升！", npc->name); zh_log(buf); }
-            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); refresh_zongheng_ui();
+            lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         }, 0xc0392b);
 
         add_n_btn("离开", [](lv_event_t *e){ lv_obj_add_flag(modal_npc, LV_OBJ_FLAG_HIDDEN); }, 0x7f8c8d);
@@ -897,7 +965,7 @@ void refresh_zongheng_ui() {
     for(int i=0; i<4; i++) {
         lv_obj_t * btn_f = lv_btn_create(filter_cont); lv_obj_set_size(btn_f, 50, 30); lv_obj_align(btn_f, LV_ALIGN_LEFT_MID, i * 55, 0); lv_obj_set_style_bg_color(btn_f, i == current_bag_filter ? lv_color_hex(0x2980b9) : lv_color_hex(0x34495e), 0);
         lv_obj_t * lbl_f = lv_label_create(btn_f); lv_obj_add_style(lbl_f, &style_cn, 0); lv_label_set_text(lbl_f, filter_names[i]); lv_obj_center(lbl_f);
-        lv_obj_add_event_cb(btn_f, [](lv_event_t *e){ current_bag_filter = (int)(intptr_t)lv_event_get_user_data(e); refresh_zongheng_ui(); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        lv_obj_add_event_cb(btn_f, [](lv_event_t *e){ current_bag_filter = (int)(intptr_t)lv_event_get_user_data(e); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 
     if (current_bag_filter == 0 || current_bag_filter == 1) {
@@ -910,7 +978,7 @@ void refresh_zongheng_ui() {
                 lv_obj_t * lbl = lv_obj_get_child(btn, 1); if(lbl){ lv_obj_add_style(lbl, &style_cn, 0); lv_obj_set_style_text_color(lbl, lv_color_hex(0xFFD700), 0); }
                 lv_obj_add_event_cb(btn, [](lv_event_t *e){
                     int* slot_ptr = (int*)lv_event_get_user_data(e);
-                    for(int i=0; i<50; i++) if(zh_player.inventory[i] == -1) { zh_player.inventory[i] = *slot_ptr; *slot_ptr = -1; zh_log("装备已卸下放入背包。"); refresh_zongheng_ui(); return; }
+                    for(int i=0; i<50; i++) if(zh_player.inventory[i] == -1) { zh_player.inventory[i] = *slot_ptr; *slot_ptr = -1; zh_log("装备已卸下放入背包。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); return; }
                     zh_log("背包已满，无法卸下！");
                 }, LV_EVENT_CLICKED, (void*)eq_slot_ptr);
             }
@@ -1033,14 +1101,17 @@ void build_zongheng_scene() {
             int id = (int)(intptr_t)lv_event_get_user_data(e); lv_obj_add_flag(modal_zh_menu, LV_OBJ_FLAG_HIDDEN); 
             if(id == 1) { refresh_skill_cfg_list(); lv_obj_clear_flag(modal_zh_skill_cfg, LV_OBJ_FLAG_HIDDEN); }
             if(id == 2) { refresh_adjutant_cfg_list(); lv_obj_clear_flag(modal_adjutant, LV_OBJ_FLAG_HIDDEN); }
-            if(id == 3) save_zongheng_game(); 
+                if(id == 3) save_zongheng_game(); 
             if(id == 4) reset_zongheng_game(); 
             if(id == 5) {
                 // 保存游戏并清理内存
                 save_zongheng_game();
                 lv_scr_load(scr_menu);
                 lv_obj_del_async(scr_zongheng);
-                scr_zongheng = NULL;
+                reset_combat_ui_pointers();
+                reset_market_ui_pointers();
+                reset_quest_ui_pointers();
+                reset_zongheng_ui_pointers();
             }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
@@ -1076,9 +1147,9 @@ void build_zongheng_scene() {
     lv_obj_t * sail_title = lv_label_create(modal_sailing); lv_obj_add_style(sail_title, &style_cn, 0); lv_obj_set_style_text_color(sail_title, lv_color_hex(0xFFD700), 0); lv_label_set_text(sail_title, "漫长的航行"); lv_obj_align(sail_title, LV_ALIGN_TOP_MID, 0, 0);
     lbl_sailing_info = lv_label_create(modal_sailing); lv_obj_add_style(lbl_sailing_info, &style_cn, 0); lv_obj_set_width(lbl_sailing_info, 190); lv_obj_set_style_text_color(lbl_sailing_info, lv_color_hex(0xFFFFFF), 0); lv_obj_align(lbl_sailing_info, LV_ALIGN_TOP_MID, 0, 35);
     lv_obj_t * btn_sail_cont = lv_btn_create(modal_sailing); lv_obj_set_size(btn_sail_cont, 180, 40); lv_obj_align(btn_sail_cont, LV_ALIGN_BOTTOM_MID, 0, -50); lv_obj_set_style_bg_color(btn_sail_cont, lv_color_hex(0x225522), 0); lv_obj_t * lbl_sail_cont = lv_label_create(btn_sail_cont); lv_obj_add_style(lbl_sail_cont, &style_cn, 0); lv_label_set_text(lbl_sail_cont, "继续前往"); lv_obj_center(lbl_sail_cont); 
-    lv_obj_add_event_cb(btn_sail_cont, [](lv_event_t *e){ lv_obj_add_flag(modal_sailing, LV_OBJ_FLAG_HIDDEN); process_port_switch(); zh_player.location_id = sailing_target_id; spawn_monsters_for_loc(sailing_target_id); const ZH_Location* nloc = get_current_loc(); char buf[256]; snprintf(buf, sizeof(buf), "【%s】\n你抵达了新港口。\n%s", nloc->name, nloc->desc); zh_log(buf); refresh_zongheng_ui(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_sail_cont, [](lv_event_t *e){ lv_obj_add_flag(modal_sailing, LV_OBJ_FLAG_HIDDEN); process_port_switch(); zh_player.location_id = sailing_target_id; spawn_monsters_for_loc(sailing_target_id); const ZH_Location* nloc = get_current_loc(); char buf[256]; snprintf(buf, sizeof(buf), "【%s】\n你抵达了新港口。\n%s", nloc->name, nloc->desc); zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, LV_EVENT_CLICKED, NULL);
     lv_obj_t * btn_sail_cancel = lv_btn_create(modal_sailing); lv_obj_set_size(btn_sail_cancel, 180, 40); lv_obj_align(btn_sail_cancel, LV_ALIGN_BOTTOM_MID, 0, -5); lv_obj_set_style_bg_color(btn_sail_cancel, lv_color_hex(0x552222), 0); lv_obj_t * lbl_sail_cancel = lv_label_create(btn_sail_cancel); lv_obj_add_style(lbl_sail_cancel, &style_cn, 0); lv_label_set_text(lbl_sail_cancel, "紧急折返"); lv_obj_center(lbl_sail_cancel);
-    lv_obj_add_event_cb(btn_sail_cancel, [](lv_event_t *e){ lv_obj_add_flag(modal_sailing, LV_OBJ_FLAG_HIDDEN); process_port_switch(); zh_player.location_id = sailing_origin_id; spawn_monsters_for_loc(sailing_origin_id); zh_log("航线取消，回到原港口。"); refresh_zongheng_ui(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_sail_cancel, [](lv_event_t *e){ lv_obj_add_flag(modal_sailing, LV_OBJ_FLAG_HIDDEN); process_port_switch(); zh_player.location_id = sailing_origin_id; spawn_monsters_for_loc(sailing_origin_id); zh_log("航线取消，回到原港口。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, LV_EVENT_CLICKED, NULL);
 
     modal_item_detail = lv_obj_create(scr_zongheng); lv_obj_set_size(modal_item_detail, 200, 220); lv_obj_center(modal_item_detail); lv_obj_add_flag(modal_item_detail, LV_OBJ_FLAG_HIDDEN); lv_obj_set_style_bg_color(modal_item_detail, lv_color_hex(0x2c3e50), 0);
     lbl_item_detail_title = lv_label_create(modal_item_detail); lv_obj_add_style(lbl_item_detail_title, &style_cn, 0); lv_obj_set_style_text_color(lbl_item_detail_title, lv_color_hex(0xF1C40F), 0); lv_obj_align(lbl_item_detail_title, LV_ALIGN_TOP_MID, 0, -10);
@@ -1122,11 +1193,11 @@ void build_zongheng_scene() {
             }
             if (is_consumed) zh_player.inventory[selected_inventory_idx] = -1;
         } 
-        zh_log(buf); refresh_zongheng_ui();
+        zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
     }, LV_EVENT_CLICKED, NULL);
     lv_obj_t * btn_item_drop = lv_btn_create(modal_item_detail); lv_obj_set_size(btn_item_drop, 85, 35); lv_obj_align(btn_item_drop, LV_ALIGN_BOTTOM_LEFT, 0, 0); lv_obj_set_style_bg_color(btn_item_drop, lv_color_hex(0xc0392b), 0);
     lv_obj_t * lbl_idrop = lv_label_create(btn_item_drop); lv_obj_add_style(lbl_idrop, &style_cn, 0); lv_label_set_text(lbl_idrop, "丢弃"); lv_obj_center(lbl_idrop);
-    lv_obj_add_event_cb(btn_item_drop, [](lv_event_t *e){ lv_obj_add_flag(modal_item_detail, LV_OBJ_FLAG_HIDDEN); zh_player.inventory[selected_inventory_idx] = -1; zh_log("物品已被丢弃进大海。"); refresh_zongheng_ui(); }, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_item_drop, [](lv_event_t *e){ lv_obj_add_flag(modal_item_detail, LV_OBJ_FLAG_HIDDEN); zh_player.inventory[selected_inventory_idx] = -1; zh_log("物品已被丢弃进大海。"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); }, LV_EVENT_CLICKED, NULL);
     lv_obj_t * btn_item_canc = lv_btn_create(modal_item_detail); lv_obj_set_size(btn_item_canc, 85, 35); lv_obj_align(btn_item_canc, LV_ALIGN_BOTTOM_RIGHT, 0, 0); lv_obj_set_style_bg_color(btn_item_canc, lv_color_hex(0x7f8c8d), 0);
     lv_obj_t * lbl_icanc = lv_label_create(btn_item_canc); lv_obj_add_style(lbl_icanc, &style_cn, 0); lv_label_set_text(lbl_icanc, "取消"); lv_obj_center(lbl_icanc);
     lv_obj_add_event_cb(btn_item_canc, [](lv_event_t *e){ lv_obj_add_flag(modal_item_detail, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, NULL);
@@ -1181,21 +1252,34 @@ void reset_zongheng_game() {
 
     refresh_market_prices(); spawn_monsters_for_loc(zh_player.location_id);
     refresh_quest_ui(); 
-    zh_log("【新的旅程】\n目标是星辰大海！"); refresh_zongheng_ui();
+    zh_log("【新的旅程】\n目标是星辰大海！"); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
 }
 
 bool has_zongheng_save() { return LittleFS.exists("/zh_save.dat"); }
-void save_zongheng_game() { 
-    File file = LittleFS.open("/zh_save.dat", FILE_WRITE); 
-    if (!file) { zh_log("系统：存档失败！"); return; } 
+void save_zongheng_game() {
+    // 先写入临时文件
+    File file = LittleFS.open("/zh_save_temp.dat", FILE_WRITE);
+    if (!file) { zh_log("系统：存档失败！"); return; }
     size_t written = file.write((uint8_t*)&zh_player, sizeof(zh_player));
-    if (written != sizeof(zh_player)) { 
-        zh_log("系统：存档写入不完整，可能损坏！"); 
-        file.close(); 
-        return; 
+    file.close();
+    
+    // 验证写入完整性
+    if (written == sizeof(zh_player)) {
+        // 删除旧存档（如果存在）
+        if (LittleFS.exists("/zh_save.dat")) {
+            LittleFS.remove("/zh_save.dat");
+        }
+        // 原子性重命名临时文件为正式文件
+        if (LittleFS.rename("/zh_save_temp.dat", "/zh_save.dat")) {
+            zh_log("系统：游戏进度已保存。");
+        } else {
+            zh_log("系统：重命名失败，存档异常！");
+        }
+    } else {
+        zh_log("系统：写入异常，存档终止！");
+        // 清理临时文件
+        LittleFS.remove("/zh_save_temp.dat");
     }
-    file.close(); 
-    zh_log("系统：游戏进度已保存。"); 
 }
 
 bool load_zongheng_game() { 
@@ -1227,5 +1311,5 @@ bool load_zongheng_game() {
     
     refresh_market_prices(); const ZH_Location* loc = get_current_loc(); 
     refresh_quest_ui();
-    char buf[128]; snprintf(buf, sizeof(buf), "【读取存档】\n你回到了 %s。", loc->name); zh_log(buf); refresh_zongheng_ui(); return true; 
+    char buf[128]; snprintf(buf, sizeof(buf), "【读取存档】\n你回到了 %s。", loc->name); zh_log(buf); lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); return true;
 }
