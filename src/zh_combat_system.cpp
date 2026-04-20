@@ -416,7 +416,10 @@ static void end_combat(bool player_won, bool fled) {
             int heal = zh_player.max_hp * 0.2 * adj_doc->power_mult;
             zh_player.hp += heal;
             if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
-            snprintf(flee_buf + strlen(flee_buf), 256 - strlen(flee_buf), "\n船医【%s】为你疗伤，恢复了 %d 点生命。", adj_doc->name, heal);
+            // 修复：使用安全的字符串追加方式
+            static char doc_msg[128];
+            snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你疗伤，恢复了 %d 点生命。", adj_doc->name, heal);
+            strncat(flee_buf, doc_msg, sizeof(flee_buf) - strlen(flee_buf) - 1);
         }
         zh_log(flee_buf);
         lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
@@ -459,6 +462,7 @@ static void end_combat(bool player_won, bool fled) {
         int heal = zh_player.max_hp * 0.2 * adj_doc->power_mult;
         zh_player.hp += heal;
         if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
+        // 修复：使用安全的字符串追加方式
         static char doc_msg[128];
         snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你包扎伤口，恢复 %d 点生命。", adj_doc->name, heal);
         strncat(win_buf, doc_msg, sizeof(win_buf) - strlen(win_buf) - 1);
@@ -646,6 +650,13 @@ static void process_player_action(int action_type, int active_skill_idx) {
 void start_turn_based_combat(int monster_idx) {
     combat_monster_idx = monster_idx;
     current_monster_id = zh_player.current_monsters[monster_idx];
+    
+    // 【增加拦截】防止读取 -1 导致越界崩溃
+    if(current_monster_id < 0 || current_monster_id >= zh_data_monsters_count) {
+        zh_log("错误：无效的怪物实体！");
+        return;
+    }
+    
     const ZH_Monster* m = &zh_data_monsters[current_monster_id];
 
     m_max_hp = m->hp; m_hp = zh_player.current_monsters_hp[monster_idx];

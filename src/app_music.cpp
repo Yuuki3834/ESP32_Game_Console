@@ -2,8 +2,9 @@
 #include <SD_MMC.h>
 #include "Audio.h"
 #include <vector>
-#include <array>
+#include <String.h>
 #include <cstring>
+#include <strings.h>
 
 lv_obj_t * scr_music = NULL;
 lv_obj_t * list_music = NULL;
@@ -17,7 +18,7 @@ static lv_timer_t * music_ui_timer = NULL;
 Audio audio;
 TaskHandle_t audioTaskHandle = NULL;
 
-std::vector<std::array<char, 256>> playlist;
+std::vector<String> playlist;
 int current_song_idx = -1;
 volatile bool is_playing = false;
 static bool playlist_initialized = false;
@@ -51,7 +52,7 @@ void audio_task(void *pvParameters) {
         
         if (req_play && req_song_idx >= 0 && req_song_idx < (int)playlist.size()) {
             char path[300]; // 【修复】：加大缓冲区，确保容纳 "/ + 256字符"
-            snprintf(path, sizeof(path), "/%s", playlist[req_song_idx].data());
+            snprintf(path, sizeof(path), "/%s", playlist[req_song_idx].c_str());
             
             // 【修复】切换歌曲时的 stopSong 也必须纳入锁保护
             if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
@@ -93,7 +94,7 @@ void audio_task(void *pvParameters) {
                 audio.loop();
                 xSemaphoreGive(sd_mutex);
                 // 移除 taskYIELD(); 替换为：
-                vTaskDelay(pdMS_TO_TICKS(2));
+                vTaskDelay(1); // 1ms 足够让其他等锁的任务（如电子书）切入，且保证音频流畅
             } else {
                 vTaskDelay(pdMS_TO_TICKS(1)); // 获取不到锁时也要 Delay，防止死循环卡死 Core 0
                 continue;
@@ -113,7 +114,7 @@ void play_song_by_index(int idx) {
     req_song_idx = idx;
     req_play = true;
     
-    if (lbl_song_title) lv_label_set_text(lbl_song_title, playlist[idx].data());
+    if (lbl_song_title) lv_label_set_text(lbl_song_title, playlist[idx].c_str());
     if (lbl_play_icon) lv_label_set_text(lbl_play_icon, LV_SYMBOL_PAUSE);
 }
 
@@ -128,11 +129,10 @@ void init_playlist_once() {
             File file = root.openNextFile();
             while (file) {
                 const char* filename = file.name();
-                if (!file.isDirectory() && (strstr(filename, ".mp3") != NULL || strstr(filename, ".MP3") != NULL)) {
-                    std::array<char, 256> song_name;
-                    strncpy(song_name.data(), filename, 255);
-                    song_name[255] = '\0';
-                    playlist.push_back(song_name);
+                // 提取扩展名并检查
+                const char* dot = strrchr(filename, '.');
+                if (!file.isDirectory() && dot && strcasecmp(dot, ".mp3") == 0) {
+                    playlist.push_back(String(filename));
                 }
                 File next_file = root.openNextFile();
                 file.close();
@@ -207,7 +207,7 @@ void build_music_scene() {
     lbl_song_title = lv_label_create(panel_control);
     lv_obj_add_style(lbl_song_title, &style_cn, 0);
     if (current_song_idx >= 0 && current_song_idx < (int)playlist.size()) {
-        lv_label_set_text(lbl_song_title, playlist[current_song_idx].data());
+        lv_label_set_text(lbl_song_title, playlist[current_song_idx].c_str());
     } else {
         lv_label_set_text(lbl_song_title, "请选择歌曲...");
     }
@@ -291,7 +291,7 @@ void build_music_scene() {
         lv_obj_center(lbl_empty);
     } else {
         for (int i = 0; i < (int)playlist.size(); i++) {
-            lv_obj_t * btn = lv_list_add_btn(list_music, LV_SYMBOL_AUDIO, playlist[i].data());
+            lv_obj_t * btn = lv_list_add_btn(list_music, LV_SYMBOL_AUDIO, playlist[i].c_str());
             lv_obj_set_style_bg_color(btn, lv_color_hex(0x0f3460), 0);
             lv_obj_set_style_border_color(btn, lv_color_hex(0x1a1a2e), 0);
             lv_obj_t * lbl = lv_obj_get_child(btn, 1);

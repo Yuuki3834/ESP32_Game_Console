@@ -1234,9 +1234,10 @@ void reset_zongheng_game() {
     for(int i=0; i<10; i++) zh_player.adjutants_roster[i] = 0;
     zh_player.eq_adj_navigator = 0; zh_player.eq_adj_assault = 0; zh_player.eq_adj_doctor = 0; zh_player.eq_adj_accountant = 0;
 
-    zh_player.gold = 500; zh_player.silver = 0; zh_player.bank_gold = 0; zh_player.debt = 0; 
-    zh_player.crime_value = 0; zh_player.reputation = 0; 
-    zh_player.location_id = 0; 
+    zh_player.gold = 500; zh_player.silver = 0; zh_player.bank_gold = 0; zh_player.debt = 0;
+    zh_player.crime_value = 0; zh_player.reputation = 0;
+    zh_player.welfare_flag = 0;  // 重置威压状态标志，避免新游戏继承3折优惠
+    zh_player.location_id = 0;
     
     zh_player.active_bounty_id = -1; 
     zh_player.quest_id = 0; zh_player.quest_target = 0; zh_player.quest_progress = 0; 
@@ -1265,15 +1266,13 @@ void save_zongheng_game() {
     
     // 验证写入完整性
     if (written == sizeof(zh_player)) {
-        // 删除旧存档（如果存在）
-        if (LittleFS.exists("/zh_save.dat")) {
-            LittleFS.remove("/zh_save.dat");
-        }
-        // 原子性重命名临时文件为正式文件
+        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (LittleFS.rename("/zh_save_temp.dat", "/zh_save.dat")) {
             zh_log("系统：游戏进度已保存。");
         } else {
             zh_log("系统：重命名失败，存档异常！");
+            // 失败处理
+            LittleFS.remove("/zh_save_temp.dat");
         }
     } else {
         zh_log("系统：写入异常，存档终止！");

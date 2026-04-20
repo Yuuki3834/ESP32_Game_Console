@@ -221,15 +221,13 @@ void save_beijing_game() {
     
     // 验证写入完整性
     if (written == sizeof(bj)) {
-        // 删除旧存档（如果存在）
-        if (LittleFS.exists("/beijing.sav")) {
-            LittleFS.remove("/beijing.sav");
-        }
-        // 原子性重命名临时文件为正式文件
+        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (LittleFS.rename("/beijing_temp.sav", "/beijing.sav")) {
             show_bj_msg("游戏进度已成功保存至 LittleFS！");
         } else {
             show_bj_msg("重命名失败，存档异常！");
+            // 失败处理
+            LittleFS.remove("/beijing_temp.sav");
         }
     } else {
         show_bj_msg("写入异常，存档终止！");

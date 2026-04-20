@@ -67,6 +67,7 @@ void led_task(void *pvParameters) {
                 pixels.show();
                 last_led_state = false;
             }
+            vTaskDelay(pdMS_TO_TICKS(100)); // 关灯状态下降低检测频率到100ms
         } else {
             if (!last_led_state) {
                 last_led_state = true;
@@ -123,8 +124,8 @@ void led_task(void *pvParameters) {
                     break;
             }
             pixels.show();
+            vTaskDelay(pdMS_TO_TICKS(20)); // 亮灯动画状态下维持20ms高刷
         }
-        vTaskDelay(pdMS_TO_TICKS(20));
     }
 }
 

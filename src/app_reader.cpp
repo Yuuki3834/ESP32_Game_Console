@@ -58,11 +58,7 @@ void save_bookshelf() {
     
     // 验证写入完整性（至少写入了数据）
     if (total_written > 0 || bookshelf_files.empty()) {
-        // 删除旧存档（如果存在）
-        if (LittleFS.exists("/books.dat")) {
-            LittleFS.remove("/books.dat");
-        }
-        // 原子性重命名临时文件为正式文件
+        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (!LittleFS.rename("/books_temp.dat", "/books.dat")) {
             // 重命名失败，清理临时文件
             LittleFS.remove("/books_temp.dat");
@@ -84,6 +80,9 @@ void import_book(const char* path) {
 }
 
 void remove_book(int index) {
+    // 增加越界保护
+    if (index < 0 || index >= bookshelf_files.size()) return;
+    
     bookshelf_files.erase(bookshelf_files.begin() + index);
     save_bookshelf();
     // 使用异步调用避免在事件回调中直接销毁对象
@@ -444,7 +443,11 @@ void build_reader_scene() {
         slider_spacing = NULL;
     }
     scr_reading = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(scr_reading, lv_color_hex(0xf4ecd8), 0); 
+    if (is_night_mode) {
+        lv_obj_set_style_bg_color(scr_reading, lv_color_hex(0x111111), 0);
+    } else {
+        lv_obj_set_style_bg_color(scr_reading, lv_color_hex(0xf4ecd8), 0);
+    }
     
     lv_obj_add_flag(scr_reading, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(scr_reading, reading_screen_click_cb, LV_EVENT_CLICKED, NULL);
@@ -483,7 +486,16 @@ void build_reader_scene() {
             current_book.close();
             xSemaphoreGive(sd_mutex);
         }
+        // 切换回书架屏幕
         lv_scr_load_anim(scr_reader, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 200, 0, false);
+        
+        // 【增加释放逻辑】销毁阅读屏幕，释放内存
+        lv_obj_del_async(scr_reading);
+        scr_reading = NULL;
+        lbl_content = NULL;
+        overlay_menu = NULL;
+        slider_brightness = NULL;
+        slider_spacing = NULL;
     }, LV_EVENT_CLICKED, NULL);
 
     lv_obj_t * btn_night = lv_btn_create(t_bar);

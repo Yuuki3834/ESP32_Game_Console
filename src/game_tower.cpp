@@ -65,10 +65,12 @@ void init_all_maps() {
         );
     }
     
-    // 【关键修复】彻底清空内存，防止随机野数据污染引擎
+    // 【修复】增加 != NULL 检查
     if (map_data != NULL) {
         memset(map_data, 0, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
         memcpy(map_data, STATIC_MAP_DATA, sizeof(STATIC_MAP_DATA));
+    } else {
+        Serial.println("FATAL: Map memory allocation failed!");
     }
 }
 
@@ -108,6 +110,7 @@ void update_hero_stats_ui() {
 }
 
 void change_floor(int next_floor, bool going_up) {
+    if (map_data == NULL) return; // 极低成本的保命防线
     if (next_floor < 0 || next_floor >= MAX_FLOOR) return;
     current_floor = next_floor;
     int target_stair = going_up ? T_STAIR_DOWN : T_STAIR_UP;
@@ -182,6 +185,7 @@ int get_damage(int tile_type) {
 }
 
 void walk_timer_cb(lv_timer_t * timer) {
+    if (map_data == NULL) return; // 极低成本的保命防线
     if (path_index >= path_len) {
         lv_timer_pause(timer);
         return;
@@ -318,6 +322,7 @@ bool find_path(int sx, int sy, int ex, int ey) {
 }
 
 static void map_draw_event_cb(lv_event_t * e) {
+    if (map_data == NULL) return; // 极低成本的保命防线
     lv_obj_t * obj = lv_event_get_target(e);
     lv_draw_ctx_t * draw_ctx = lv_event_get_draw_ctx(e);
     lv_area_t obj_coords;
@@ -433,17 +438,15 @@ void save_tower_game() {
     // 验证写入完整性
     size_t expected_size = sizeof(save) + MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int);
     if (written1 == sizeof(save) && written2 == MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)) {
-        // 删除旧存档（如果存在）
-        if (LittleFS.exists("/tower.sav")) {
-            LittleFS.remove("/tower.sav");
-        }
-        // 原子性重命名临时文件为正式文件
+        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (LittleFS.rename("/tower_temp.sav", "/tower.sav")) {
             Serial.println("✓ 游戏已存入 LittleFS");
             show_message("【系统】\n当前游戏进度已成功存档！");
         } else {
             Serial.println("重命名失败，存档异常！");
             show_message("【系统】\n存档失败，请重试！");
+            // 失败处理
+            LittleFS.remove("/tower_temp.sav");
         }
     } else {
         Serial.println("写入异常，存档终止！");
@@ -470,9 +473,13 @@ bool load_tower_game() {
             MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
     }
 
-    // 【关键修复】确保堆空间分配后强制清零，防崩溃
+    // 【修复】增加 != NULL 检查
     if (map_data != NULL) {
         memset(map_data, 0, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
+    } else {
+        Serial.println("FATAL: Map memory allocation failed in load_tower_game!");
+        file.close();
+        return false;
     }
 
     SaveData save;
@@ -492,6 +499,7 @@ bool load_tower_game() {
     is_tower_started = true;
     refresh_tower_ui();
     return true;
+
 }
 
 bool buy_item(int cost, int &stat, int gain) {

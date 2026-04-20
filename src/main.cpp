@@ -5,6 +5,7 @@
 #include <TFT_eSPI.h>
 #include <SD_MMC.h>
 #include <LittleFS.h>
+#include <esp_heap_caps.h>
 #include "global.h"
 
 // ==================== 硬件引脚定义 ====================
@@ -164,17 +165,17 @@ void my_touchpad_read(lv_indev_drv_t *indev, lv_indev_data_t *data) {
  * @return 是否分配成功
  */
 bool allocateDisplayBuffers() {
-    // 使用标准malloc分配内存，ESP32底层会自动选择合适的内存区域
-    buf1 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
+    // 强制从内部SRAM中分配支持DMA的内存，避免PSRAM导致的SPI DMA访问问题
+    buf1 = (lv_color_t*)heap_caps_malloc(240 * 160 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     if (!buf1) {
         Serial.println("FATAL ERROR: buf1 allocation failed!");
         return false;
     }
     
-    buf2 = (lv_color_t*)malloc(240 * 160 * sizeof(lv_color_t));
+    buf2 = (lv_color_t*)heap_caps_malloc(240 * 160 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
     if (!buf2) {
         Serial.println("FATAL ERROR: buf2 allocation failed!");
-        free(buf1);
+        heap_caps_free(buf1);
         buf1 = NULL;
         return false;
     }
