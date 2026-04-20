@@ -52,6 +52,7 @@ void led_task(void *pvParameters) {
     bool last_led_state = false;
     uint8_t last_r = 0, last_g = 0, last_b = 0;
     bool needs_update = true;
+    int current_running_mode = -1; // 记录当前运行的模式，用于检测切换
 
     while(1) {
         uint32_t t = millis();
@@ -72,6 +73,12 @@ void led_task(void *pvParameters) {
             if (!last_led_state) {
                 last_led_state = true;
                 needs_update = true; 
+            }
+            
+            // 当切换回常亮模式时，强制刷新颜色，以防呼吸灯修改了显示值但缓存变量没变
+            if (current_running_mode != led_mode) {
+                current_running_mode = led_mode;
+                needs_update = true;
             }
             
             switch(led_mode) {
@@ -120,6 +127,31 @@ void led_task(void *pvParameters) {
                             if (t % cycle < custom_on_ms) pixels.setPixelColor(0, led_r, led_g, led_b);
                             else pixels.clear();
                         }
+                    }
+                    break;
+                case 6: // 【新增】单色呼吸
+                    {
+                        uint32_t cycle = t % 2000; // 2秒一个呼吸周期
+                        // 前1秒渐亮(0~1)，后1秒渐暗(1~0)
+                        float factor = cycle < 1000 ? (float)cycle / 1000.0 : (float)(2000 - cycle) / 1000.0;
+                        factor = factor * factor; // 视觉非线性平滑：用平方使亮度过渡更自然
+                        pixels.setPixelColor(0, led_r * factor, led_g * factor, led_b * factor);
+                    }
+                    break;
+                case 7: // 【新增】七彩呼吸
+                    {
+                        uint32_t c[] = {0xFF0000, 0xFF7F00, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0x8B00FF};
+                        uint32_t cycle_index = (t / 2000) % 7; // 每2秒切换一个颜色
+                        uint32_t cycle_t = t % 2000; 
+                        float factor = cycle_t < 1000 ? (float)cycle_t / 1000.0 : (float)(2000 - cycle_t) / 1000.0;
+                        factor = factor * factor; // 视觉平滑
+                        
+                        // 分离当前颜色的RGB并应用呼吸强度系数
+                        uint8_t r = ((c[cycle_index] >> 16) & 0xFF) * factor;
+                        uint8_t g = ((c[cycle_index] >> 8) & 0xFF) * factor;
+                        uint8_t b = (c[cycle_index] & 0xFF) * factor;
+                        
+                        pixels.setPixelColor(0, r, g, b);
                     }
                     break;
             }
@@ -340,7 +372,8 @@ void build_led_scene() {
     dd_mode = lv_dropdown_create(cont);
     lv_obj_set_width(dd_mode, 220);
     lv_obj_add_style(dd_mode, &style_cn, 0);
-    lv_dropdown_set_options(dd_mode, "手动/常亮\n红色慢闪\n红蓝警灯\n白光 SOS\n七彩交替\n自定义闪烁");
+    // 【新增选项】添加了“单色呼吸”和“七彩呼吸”
+    lv_dropdown_set_options(dd_mode, "手动/常亮\n红色慢闪\n红蓝警灯\n白光 SOS\n七彩交替\n自定义闪烁\n单色呼吸\n七彩呼吸");
     lv_dropdown_set_selected(dd_mode, led_mode);
     lv_obj_t * list_mode = lv_dropdown_get_list(dd_mode);
     if(list_mode != NULL) lv_obj_add_style(list_mode, &style_cn, 0);
