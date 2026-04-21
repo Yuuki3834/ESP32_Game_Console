@@ -14,8 +14,6 @@ extern int get_random_drop_id();
 extern bool add_item_to_bag(int item_id);
 extern void check_levelup();
 extern ZH_Item get_item_by_id(int id);
-
-// 引入副官系统的查询函数
 extern const ZH_Adjutant* get_adjutant_by_id(int id);
 
 // =========================================================================
@@ -243,29 +241,22 @@ static void add_combat_log(const char* msg) {
     size_t msg_len = strlen(msg);
     size_t buf_size = sizeof(combat_log_buffer);
     
-    // 终极保险：如果单条消息太长，直接抛弃旧日志
     if (msg_len >= buf_size / 2) {
-        combat_log_buffer[0] = '\0'; // 遇到超长文本直接清空
+        combat_log_buffer[0] = '\0';
     }
     
-    // 动态检查剩余空间，留出充足余量 (包括换行符和终止符)
     if (strlen(combat_log_buffer) + msg_len + 2 >= buf_size) {
-        // 当拼接后总长度可能越界时，进行安全的居中裁剪
         const char* p = combat_log_buffer + (buf_size / 2);
-        // 向后寻找换行符以保证句子完整性
         while(*p && *p != '\n') p++;
         if(*p == '\n') p++;
         
-        // 如果截断后剩余长度 + 新消息长度仍然越界，或者没找到换行，直接清空缓冲池
         if (*p == '\0' || (strlen(p) + msg_len + 2 >= buf_size)) {
             combat_log_buffer[0] = '\0';
         } else {
-            // 将后半部分移到头部
             memmove(combat_log_buffer, p, strlen(p) + 1); 
         }
     }
     
-    // 安全拼接，绝对防止溢出
     strncat(combat_log_buffer, msg, buf_size - strlen(combat_log_buffer) - 1);
     strncat(combat_log_buffer, "\n", buf_size - strlen(combat_log_buffer) - 1);
     
@@ -278,7 +269,6 @@ static void get_player_battle_stats(int* atk, int* def, int* crit, int* dodge) {
     *crit = zh_player.base_crit; 
     *dodge = zh_player.base_dodge; 
     
-    // 载入被动技能属性
     for(int i=0; i<4; i++) {
         int sid = zh_player.eq_passive_skills[i];
         if(sid <= 0) continue;
@@ -290,7 +280,6 @@ static void get_player_battle_stats(int* atk, int* def, int* crit, int* dodge) {
         if(sk->id == 203) *crit += 15;
         if(sk->id == 204) *def = (*def) * 1.3;
         if(sk->id == 205) *dodge += 15;
-        if(sk->id == 206) ; // MP恢复逻辑独立处理
         if(sk->id == 212 && zh_player.hp < zh_player.max_hp * 0.3) *atk *= 2; 
         if(sk->id == 214) *crit += 20;
         if(sk->id == 215) *dodge += 20;
@@ -309,7 +298,6 @@ static void get_player_battle_stats(int* atk, int* def, int* crit, int* dodge) {
         if(sk->id == 245) { *dodge = 0; } 
     }
 
-    // 载入副官加成 (冲锋队长 - 增加暴击)
     const ZH_Adjutant* adj_assault = get_adjutant_by_id(zh_player.eq_adj_assault);
     if (adj_assault) {
         *crit += 15 * adj_assault->power_mult; 
@@ -324,7 +312,6 @@ static int get_actual_mp_cost(const ZH_Skill* sk) {
         if(sid == 213) cost = cost * 70 / 100;
         if(sid == 224) cost = cost * 85 / 100;
         if(sid == 229) cost = cost * 60 / 100;
-        // 删除了 if(sid == 253) cost = 0; 这一行
     }
     return cost;
 }
@@ -406,17 +393,14 @@ static void end_combat(bool player_won, bool fled) {
     lv_obj_add_flag(modal_combat, LV_OBJ_FLAG_HIDDEN);
     player_temp_atk_buff = 0; player_temp_def_buff = 0; player_temp_frenzy_atk = 0;
 
-    // 如果逃跑成功
     if (fled) {
         static char flee_buf[256];
-        strcpy(flee_buf, "【战斗结束】\n你狼狈地逃跑了！");
-        // 船医赛后恢复效果
+        snprintf(flee_buf, sizeof(flee_buf), "【战斗结束】\n你狼狈地逃跑了！");
         const ZH_Adjutant* adj_doc = get_adjutant_by_id(zh_player.eq_adj_doctor);
         if (adj_doc) {
             int heal = zh_player.max_hp * 0.2 * adj_doc->power_mult;
             zh_player.hp += heal;
             if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
-            // 修复：使用安全的字符串追加方式
             static char doc_msg[128];
             snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你疗伤，恢复了 %d 点生命。", adj_doc->name, heal);
             strncat(flee_buf, doc_msg, sizeof(flee_buf) - strlen(flee_buf) - 1);
@@ -426,10 +410,8 @@ static void end_combat(bool player_won, bool fled) {
         return;
     }
     
-    // 如果玩家战死
     if (!player_won) { player_die(); return; }
 
-    // 如果玩家获胜
     const ZH_Monster* m = &zh_data_monsters[current_monster_id];
     int final_gold = m->gold_drop; int final_exp = m->exp_drop;
     for(int i=0; i<4; i++) {
@@ -444,25 +426,21 @@ static void end_combat(bool player_won, bool fled) {
     static char win_buf[512];
     snprintf(win_buf, sizeof(win_buf), "击杀【%s】！\n经验+%d, 铜贝+%d", m->name, final_exp, final_gold);
 
-    // 战利品掉落判定
     if (rand() % 100 < 35) { 
         int drop_id = get_random_drop_id();
         if (add_item_to_bag(drop_id)) {
             static char drop_msg[128];
-            // 提前计算，杜绝求值顺序带来的缓冲区覆写
             const char* item_name = get_item_by_id(drop_id).name;
             snprintf(drop_msg, sizeof(drop_msg), "\n掉落并拾取：【%s】！", item_name);
             strncat(win_buf, drop_msg, sizeof(win_buf) - strlen(win_buf) - 1);
         }
     }
     
-    // 船医赛后恢复效果
     const ZH_Adjutant* adj_doc = get_adjutant_by_id(zh_player.eq_adj_doctor);
     if (adj_doc) {
         int heal = zh_player.max_hp * 0.2 * adj_doc->power_mult;
         zh_player.hp += heal;
         if(zh_player.hp > zh_player.max_hp) zh_player.hp = zh_player.max_hp;
-        // 修复：使用安全的字符串追加方式
         static char doc_msg[128];
         snprintf(doc_msg, sizeof(doc_msg), "\n船医【%s】为你包扎伤口，恢复 %d 点生命。", adj_doc->name, heal);
         strncat(win_buf, doc_msg, sizeof(win_buf) - strlen(win_buf) - 1);
@@ -477,13 +455,12 @@ static void process_monster_turn() {
     static char log_buf[256];
     int p_atk, p_def, p_crit, p_dodge; get_player_battle_stats(&p_atk, &p_def, &p_crit, &p_dodge);
     
-    // --- 罪恶惩罚：路人补刀 / 赏金猎人 ---
     if (zh_player.crime_value >= 150 && rand() % 100 < 15) {
         int g_dmg = zh_player.level * 6 + 50 + (zh_player.crime_value / 10);
         zh_player.hp -= g_dmg;
         add_combat_log("【天网恢恢】暗处的赏金猎人朝你放了冷枪！(生命扣减)");
     }
-    // --- 声望奖励：侠客义举 ---
+
     if (zh_player.reputation >= 200 && rand() % 100 < 18) {
         int a_dmg = m->hp * 0.15; if (a_dmg < 20) a_dmg = 20; 
         m_hp -= a_dmg;
@@ -492,7 +469,7 @@ static void process_monster_turn() {
 
     if (rand() % 100 < p_dodge) {
         snprintf(log_buf, sizeof(log_buf), "%s 的攻击被你【闪避】了！", m->name);
-        for(int i=0; i<4; i++) if(zh_player.eq_passive_skills[i] == 246) strcat(log_buf, " (风暴行者充能)");
+        for(int i=0; i<4; i++) if(zh_player.eq_passive_skills[i] == 246) strncat(log_buf, " (风暴行者充能)", sizeof(log_buf) - strlen(log_buf) - 1);
         add_combat_log(log_buf); update_combat_status(); return;
     }
 
@@ -561,7 +538,6 @@ static void process_player_action(int action_type, int active_skill_idx) {
 
     if (action_type == 0) { 
         int esc_chance = 50 + (zh_player.level - m->level)*2;
-        // 载入副官加成 (冲锋队长 - 增加逃跑率)
         const ZH_Adjutant* adj_assault = get_adjutant_by_id(zh_player.eq_adj_assault);
         if (adj_assault) esc_chance += 30 * adj_assault->power_mult;
 
@@ -592,7 +568,7 @@ static void process_player_action(int action_type, int active_skill_idx) {
         do_dmg_passive(final_dmg); snprintf(log_buf, sizeof(log_buf), "你挥舞武器！%s造成 %d 伤害。", is_crit ? "【爆】" : "", final_dmg);
         
         bool combo = false; for(int i=0; i<4; i++) if(zh_player.eq_passive_skills[i] == 217 && rand()%100 < 30) combo = true;
-        if(combo) { m_hp -= final_dmg; strcat(log_buf, "【野性连击】再次造成同等伤害！"); }
+        if(combo) { m_hp -= final_dmg; strncat(log_buf, "【野性连击】再次造成同等伤害！", sizeof(log_buf) - strlen(log_buf) - 1); }
         add_combat_log(log_buf);
 
     } else if (action_type == 2) { 
@@ -651,7 +627,6 @@ void start_turn_based_combat(int monster_idx) {
     combat_monster_idx = monster_idx;
     current_monster_id = zh_player.current_monsters[monster_idx];
     
-    // 【增加拦截】防止读取 -1 导致越界崩溃
     if(current_monster_id < 0 || current_monster_id >= zh_data_monsters_count) {
         zh_log("错误：无效的怪物实体！");
         return;
@@ -675,7 +650,6 @@ void start_turn_based_combat(int monster_idx) {
         lv_obj_clear_flag(modal_combat, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_pad_all(modal_combat, 0, 0);
 
-        // 1. 顶部状态
         lv_obj_t* cont_status = lv_obj_create(modal_combat);
         lv_obj_set_size(cont_status, 230, 50);
         lv_obj_align(cont_status, LV_ALIGN_TOP_MID, 0, 5);
@@ -697,7 +671,6 @@ void start_turn_based_combat(int monster_idx) {
         lv_obj_add_style(lbl_player_status, &style_cn, 0);
         lv_obj_set_style_text_color(lbl_player_status, lv_color_hex(0x00FF00), 0);
 
-        // 2. 战斗日志区
         lv_obj_t* cont_log = lv_obj_create(modal_combat);
         lv_obj_set_size(cont_log, 230, 170);
         lv_obj_align(cont_log, LV_ALIGN_TOP_MID, 0, 60); 
@@ -709,7 +682,6 @@ void start_turn_based_combat(int monster_idx) {
         lv_obj_set_style_text_color(lbl_combat_log, lv_color_hex(0x00FF00), 0);
         lv_obj_set_width(lbl_combat_log, 210);
 
-        // 3. 底部带滚动条的 15 格按钮网格
         combat_btn_grid = lv_obj_create(modal_combat);
         lv_obj_set_size(combat_btn_grid, 230, 110);
         lv_obj_align(combat_btn_grid, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -743,7 +715,6 @@ void start_turn_based_combat(int monster_idx) {
 
         for(int i=0; i<15; i++) create_grid_btn(combat_btn_grid, i);
 
-        // 4. 战斗专属弹窗物品栏
         modal_combat_items = lv_obj_create(modal_combat);
         lv_obj_set_size(modal_combat_items, 230, 260);
         lv_obj_align(modal_combat_items, LV_ALIGN_BOTTOM_MID, 0, -5);
@@ -762,10 +733,9 @@ void start_turn_based_combat(int monster_idx) {
         lv_obj_set_style_border_width(list_combat_items, 0, 0);
     }
 
-    strcpy(combat_log_buffer, "=== 战斗开始 ===\n");
+    snprintf(combat_log_buffer, sizeof(combat_log_buffer), "=== 战斗开始 ===\n");
     char logb[128]; snprintf(logb, sizeof(logb), "野生的 Lv.%d [%s] 出现了！", m->level, m->name); add_combat_log(logb);
     
-    // 重置 15 格按钮状态
     for(int i=0; i<15; i++) {
         lv_obj_t* btn = lv_obj_get_child(combat_btn_grid, i);
         lv_obj_t* lbl = lv_obj_get_child(btn, 0);

@@ -39,7 +39,6 @@ void load_bookshelf() {
 }
 
 void save_bookshelf() {
-    // 先写入临时文件
     File f = LittleFS.open("/books_temp.dat", FILE_WRITE);
     if (!f) return;
     
@@ -56,15 +55,11 @@ void save_bookshelf() {
     }
     f.close();
     
-    // 验证写入完整性（至少写入了数据）
     if (total_written > 0 || bookshelf_files.empty()) {
-        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (!LittleFS.rename("/books_temp.dat", "/books.dat")) {
-            // 重命名失败，清理临时文件
             LittleFS.remove("/books_temp.dat");
         }
     } else {
-        // 写入失败，清理临时文件
         LittleFS.remove("/books_temp.dat");
     }
 }
@@ -80,12 +75,10 @@ void import_book(const char* path) {
 }
 
 void remove_book(int index) {
-    // 增加越界保护
     if (index < 0 || index >= bookshelf_files.size()) return;
     
     bookshelf_files.erase(bookshelf_files.begin() + index);
     save_bookshelf();
-    // 使用异步调用避免在事件回调中直接销毁对象
     lv_async_call([](void*) {
         refresh_bookshelf_ui();
     }, NULL);
@@ -104,7 +97,6 @@ void init_backlight() {
 void read_page(uint32_t pos) {
     if (!current_book) return;
     
-    // 使用互斥锁保护 SD 卡访问
     if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         current_book.seek(pos);
         
@@ -115,15 +107,12 @@ void read_page(uint32_t pos) {
         if (bytesRead > 0) {
             while (bytesRead > 0) {
                 uint8_t last_byte = buf[bytesRead - 1];
-                // 如果是单字节 ASCII，安全
                 if ((last_byte & 0x80) == 0) {
                     break;
                 }
-                // 如果是 UTF-8 的后续字节 (10xxxxxx)，必须退掉
                 else if ((last_byte & 0xC0) == 0x80) {
                     bytesRead--;
                 }
-                // 如果是 UTF-8 的首字节 (11xxxxxx)，退掉它，因为后面的部分没读全！退完就安全了
                 else {
                     bytesRead--;
                     break;
@@ -142,7 +131,6 @@ void read_page(uint32_t pos) {
         
         lv_label_set_text(lbl_content, buf);
     } else {
-        // 如果无法获取互斥锁，显示错误信息
         lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
     }
 }
@@ -150,11 +138,10 @@ void read_page(uint32_t pos) {
 void jump_chapter(bool forward) {
     if (!current_book || file_size == 0) return;
     
-    // 使用互斥锁保护 SD 卡访问，不再需要手动暂停音乐
     if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         uint32_t search_pos = current_pos;
         bool found_chapter = false;
-        bool owns_mutex = true; // 新增状态标记
+        bool owns_mutex = true;
         
         if (forward) {
             search_pos += 450;
@@ -175,10 +162,10 @@ void jump_chapter(bool forward) {
                 }
                 search_pos += 450;
                 
-                xSemaphoreGive(sd_mutex);           // 释放锁
-                vTaskDelay(pdMS_TO_TICKS(2));       // 让出CPU，给音频任务读取缓冲区的时间
+                xSemaphoreGive(sd_mutex);
+                vTaskDelay(pdMS_TO_TICKS(2));
                 if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-                    owns_mutex = false; // 拿不到锁，更新标记
+                    owns_mutex = false;
                     break;
                 }
             }
@@ -189,18 +176,16 @@ void jump_chapter(bool forward) {
             current_pos = (current_pos > 10000) ? current_pos - 10000 : 0;
         }
         
-        if (owns_mutex) { // 安全释放
+        if (owns_mutex) {
             xSemaphoreGive(sd_mutex);
         }
         read_page(current_pos);
     } else {
-        // 如果无法获取互斥锁，显示错误信息
         lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
     }
 }
 
 void open_book(const char* path) {
-    // 使用互斥锁保护 SD 卡访问，不再需要手动暂停音乐
     if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         if (current_book) current_book.close();
         current_book = SD_MMC.open(path, FILE_READ);
@@ -226,7 +211,6 @@ void open_book(const char* path) {
         read_page(0);
         lv_obj_add_flag(overlay_menu, LV_OBJ_FLAG_HIDDEN);
         
-        // 根据当前的夜间模式状态设置文本颜色
         if (is_night_mode) {
             lv_obj_set_style_text_color(lbl_content, lv_color_hex(0x666666), 0);
         } else {
@@ -235,7 +219,6 @@ void open_book(const char* path) {
         
         lv_scr_load_anim(scr_reading, LV_SCR_LOAD_ANIM_MOVE_LEFT, 200, 0, false);
     } else {
-        // 如果无法获取互斥锁，显示错误信息
         if (lbl_content) {
             lv_label_set_text(lbl_content, "\n\n      --- SD 卡忙，请稍后再试 ---");
         }
@@ -264,7 +247,7 @@ static void reading_screen_click_cb(lv_event_t * e) {
 }
 
 void refresh_bookshelf_ui() {
-    if (!scr_reader || !list_bookshelf) return; // 增加安全校验
+    if (!scr_reader || !list_bookshelf) return;
     lv_obj_clean(list_bookshelf);
     if (bookshelf_files.empty()) {
         lv_obj_t * lbl = lv_label_create(list_bookshelf);
@@ -296,7 +279,6 @@ void refresh_bookshelf_ui() {
 void open_import_modal() {
     lv_obj_clean(list_sd_files);
     
-    // 使用互斥锁保护 SD 卡访问
     if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(1000)) == pdTRUE) {
         File root = SD_MMC.open("/");
         if (root) {
@@ -321,10 +303,10 @@ void open_import_modal() {
                     }, LV_EVENT_DELETE, path_ptr);
                 }
                 File next_file = root.openNextFile();
-                file.close();  // 显式释放上一轮的文件句柄
+                file.close();
                 file = next_file;
             }
-            root.close();  // 释放目录句柄
+            root.close();
         }
         xSemaphoreGive(sd_mutex);
     }
@@ -388,14 +370,12 @@ void build_reader_scene() {
             if(id == 0) open_import_modal();
             if(id == 1) { is_remove_mode = !is_remove_mode; refresh_bookshelf_ui(); }
             if(id == 2) {
-                // 【修复】文件关闭必须加锁
                 if (current_book) {
-                    // 即便稍微阻挡，退出时也必须把文件关掉
                     xSemaphoreTake(sd_mutex, portMAX_DELAY);
                     current_book.close();
                     xSemaphoreGive(sd_mutex);
                 }
-                ledcWrite(1, 255); // 恢复屏幕满亮度
+                ledcWrite(1, 255);
                 lv_scr_load(scr_menu);
                 lv_obj_del_async(scr_reader);
                 scr_reader = NULL;
@@ -479,17 +459,13 @@ void build_reader_scene() {
     lv_obj_t * l_er = lv_label_create(btn_exit_read); lv_obj_add_style(l_er, &style_cn, 0);
     lv_label_set_text(l_er, "书架"); lv_obj_center(l_er);
     lv_obj_add_event_cb(btn_exit_read, [](lv_event_t *e){
-        // 【修复】文件关闭必须加锁
         if (current_book) {
-            // 即便稍微阻挡，退出时也必须把文件关掉
             xSemaphoreTake(sd_mutex, portMAX_DELAY);
             current_book.close();
             xSemaphoreGive(sd_mutex);
         }
-        // 切换回书架屏幕
         lv_scr_load_anim(scr_reader, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 200, 0, false);
         
-        // 【增加释放逻辑】销毁阅读屏幕，释放内存
         lv_obj_del_async(scr_reading);
         scr_reading = NULL;
         lbl_content = NULL;

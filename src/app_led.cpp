@@ -22,12 +22,16 @@ volatile uint8_t led_r = 255, led_g = 255, led_b = 255;
 volatile int led_mode = 0;
 volatile uint32_t led_auto_off_time = 0;
 volatile uint16_t custom_on_ms = 500, custom_off_ms = 500;
-
+static bool is_updating_ui = false;
 Adafruit_NeoPixel pixels(NUM_PIXELS, LED_PIN, NEO_GRB + NEO_KHZ800);
 TaskHandle_t ledTaskHandle;
 
 static void update_rgb_ui_from_vars() {
     if(!slider_r || !slider_g || !slider_b || !ta_r || !ta_g || !ta_b) return; 
+    
+    if (is_updating_ui) return; 
+    
+    is_updating_ui = true;
 
     if(lv_slider_get_value(slider_r) != led_r) lv_slider_set_value(slider_r, led_r, LV_ANIM_OFF);
     if(lv_slider_get_value(slider_g) != led_g) lv_slider_set_value(slider_g, led_g, LV_ANIM_OFF);
@@ -42,6 +46,8 @@ static void update_rgb_ui_from_vars() {
 
     snprintf(buf, sizeof(buf), "%d", led_b);
     if(strcmp(lv_textarea_get_text(ta_b), buf) != 0) lv_textarea_set_text(ta_b, buf);
+    
+    is_updating_ui = false;
 }
 
 void led_task(void *pvParameters) {
@@ -52,7 +58,7 @@ void led_task(void *pvParameters) {
     bool last_led_state = false;
     uint8_t last_r = 0, last_g = 0, last_b = 0;
     bool needs_update = true;
-    int current_running_mode = -1; // 记录当前运行的模式，用于检测切换
+    int current_running_mode = -1;
 
     while(1) {
         uint32_t t = millis();
@@ -68,14 +74,13 @@ void led_task(void *pvParameters) {
                 pixels.show();
                 last_led_state = false;
             }
-            vTaskDelay(pdMS_TO_TICKS(100)); // 关灯状态下降低检测频率到100ms
+            vTaskDelay(pdMS_TO_TICKS(100));
         } else {
             if (!last_led_state) {
                 last_led_state = true;
                 needs_update = true; 
             }
             
-            // 当切换回常亮模式时，强制刷新颜色，以防呼吸灯修改了显示值但缓存变量没变
             if (current_running_mode != led_mode) {
                 current_running_mode = led_mode;
                 needs_update = true;
@@ -129,24 +134,22 @@ void led_task(void *pvParameters) {
                         }
                     }
                     break;
-                case 6: // 【新增】单色呼吸
+                case 6:
                     {
-                        uint32_t cycle = t % 2000; // 2秒一个呼吸周期
-                        // 前1秒渐亮(0~1)，后1秒渐暗(1~0)
+                        uint32_t cycle = t % 2000;
                         float factor = cycle < 1000 ? (float)cycle / 1000.0 : (float)(2000 - cycle) / 1000.0;
-                        factor = factor * factor; // 视觉非线性平滑：用平方使亮度过渡更自然
+                        factor = factor * factor;
                         pixels.setPixelColor(0, led_r * factor, led_g * factor, led_b * factor);
                     }
                     break;
-                case 7: // 【新增】七彩呼吸
+                case 7:
                     {
                         uint32_t c[] = {0xFF0000, 0xFF7F00, 0xFFFF00, 0x00FF00, 0x00FFFF, 0x0000FF, 0x8B00FF};
-                        uint32_t cycle_index = (t / 2000) % 7; // 每2秒切换一个颜色
+                        uint32_t cycle_index = (t / 2000) % 7;
                         uint32_t cycle_t = t % 2000; 
                         float factor = cycle_t < 1000 ? (float)cycle_t / 1000.0 : (float)(2000 - cycle_t) / 1000.0;
-                        factor = factor * factor; // 视觉平滑
+                        factor = factor * factor;
                         
-                        // 分离当前颜色的RGB并应用呼吸强度系数
                         uint8_t r = ((c[cycle_index] >> 16) & 0xFF) * factor;
                         uint8_t g = ((c[cycle_index] >> 8) & 0xFF) * factor;
                         uint8_t b = (c[cycle_index] & 0xFF) * factor;
@@ -156,24 +159,52 @@ void led_task(void *pvParameters) {
                     break;
             }
             pixels.show();
-            vTaskDelay(pdMS_TO_TICKS(20)); // 亮灯动画状态下维持20ms高刷
+            vTaskDelay(pdMS_TO_TICKS(20));
         }
     }
 }
 
 static void slider_event_cb(lv_event_t * e) {
     if (!slider_r || !slider_g || !slider_b) return;
+    
+    if (is_updating_ui) return;
+
     led_r = lv_slider_get_value(slider_r);
     led_g = lv_slider_get_value(slider_g);
     led_b = lv_slider_get_value(slider_b);
+    
+    if (led_mode != 0) {
+        led_mode = 0;
+        if (dd_mode) lv_dropdown_set_selected(dd_mode, 0);
+    }
+    
+    if (!led_is_on) {
+        led_is_on = true;
+        if (sw_power) lv_obj_add_state(sw_power, LV_STATE_CHECKED);
+    }
+
     update_rgb_ui_from_vars();
 }
 
 static void ta_event_cb(lv_event_t * e) {
     if (!ta_r || !ta_g || !ta_b) return;
+    
+    if (is_updating_ui) return;
+
     led_r = constrain(atoi(lv_textarea_get_text(ta_r)), 0, 255);
     led_g = constrain(atoi(lv_textarea_get_text(ta_g)), 0, 255);
     led_b = constrain(atoi(lv_textarea_get_text(ta_b)), 0, 255);
+    
+    if (led_mode != 0) {
+        led_mode = 0;
+        if (dd_mode) lv_dropdown_set_selected(dd_mode, 0);
+    }
+    
+    if (!led_is_on) {
+        led_is_on = true;
+        if (sw_power) lv_obj_add_state(sw_power, LV_STATE_CHECKED);
+    }
+
     update_rgb_ui_from_vars();
 }
 
@@ -267,7 +298,6 @@ void build_led_scene() {
             lv_timer_del(led_ui_timer);
             led_ui_timer = NULL;
         }
-        // 清理内存并立即断开所有全局 UI 指针
         lv_scr_load(scr_menu);
         lv_obj_del_async(scr_led);
         scr_led = NULL;
@@ -372,7 +402,6 @@ void build_led_scene() {
     dd_mode = lv_dropdown_create(cont);
     lv_obj_set_width(dd_mode, 220);
     lv_obj_add_style(dd_mode, &style_cn, 0);
-    // 【新增选项】添加了“单色呼吸”和“七彩呼吸”
     lv_dropdown_set_options(dd_mode, "手动/常亮\n红色慢闪\n红蓝警灯\n白光 SOS\n七彩交替\n自定义闪烁\n单色呼吸\n七彩呼吸");
     lv_dropdown_set_selected(dd_mode, led_mode);
     lv_obj_t * list_mode = lv_dropdown_get_list(dd_mode);
@@ -419,6 +448,5 @@ void build_led_scene() {
     lv_obj_add_event_cb(slider_off_time, update_flash_labels, LV_EVENT_VALUE_CHANGED, NULL);
     update_flash_labels(NULL);
     
-    // 在 build_led_scene() 结尾添加：
-    if (led_ui_timer) lv_timer_resume(led_ui_timer); // ✅ 进入时恢复定时器
+    if (led_ui_timer) lv_timer_resume(led_ui_timer);
 }

@@ -38,12 +38,10 @@ void audio_task(void *pvParameters) {
     
     while(1) {
         if (req_stop) {
-            // 【修复】必须加锁，内部会关闭文件流
             if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
                 audio.stopSong();
                 xSemaphoreGive(sd_mutex);
             } else {
-                // 如果无法获取互斥锁，跳过本次循环，下个周期重试
                 continue;
             }
             is_playing = false;
@@ -51,17 +49,15 @@ void audio_task(void *pvParameters) {
         }
         
         if (req_play && req_song_idx >= 0 && req_song_idx < (int)playlist.size()) {
-            char path[300]; // 【修复】：加大缓冲区，确保容纳 "/ + 256字符"
+            char path[300];
             snprintf(path, sizeof(path), "/%s", playlist[req_song_idx].c_str());
             
-            // 【修复】切换歌曲时的 stopSong 也必须纳入锁保护
             if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
                 audio.stopSong();
                 audio.connecttoFS(SD_MMC, path);
                 xSemaphoreGive(sd_mutex);
                 vTaskDelay(pdMS_TO_TICKS(2));
             } else {
-                // 如果无法获取互斥锁，跳过本次循环，下个周期重试
                 continue;
             }
             
@@ -71,13 +67,11 @@ void audio_task(void *pvParameters) {
         }
         
         if (req_pause) {
-            // 【修复】暂停/恢复也涉及到底层DMA和流控，加锁最安全
             if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
                 audio.pauseResume();
-                is_playing = !is_playing; // 确保硬件操作成功后再翻转状态
+                is_playing = !is_playing;
                 xSemaphoreGive(sd_mutex);
             } else {
-                // 如果无法获取互斥锁，跳过本次循环，下个周期重试
                 continue;
             }
             req_pause = false;
@@ -89,21 +83,19 @@ void audio_task(void *pvParameters) {
         }
         
         if (audio.isRunning()) {
-            // 使用互斥锁保护 SD 卡访问
             if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
                 audio.loop();
                 xSemaphoreGive(sd_mutex);
-                // 移除 taskYIELD(); 替换为：
-                vTaskDelay(1); // 1ms 足够让其他等锁的任务（如电子书）切入，且保证音频流畅
+                vTaskDelay(1);
             } else {
-                vTaskDelay(pdMS_TO_TICKS(1)); // 获取不到锁时也要 Delay，防止死循环卡死 Core 0
+                vTaskDelay(pdMS_TO_TICKS(1));
                 continue;
             }
         } else {
             if (is_playing) {
                 is_playing = false;
             }
-            vTaskDelay(pdMS_TO_TICKS(10)); // 没在播放时才休息
+            vTaskDelay(pdMS_TO_TICKS(10));
         }
     }
 }
@@ -122,14 +114,12 @@ void init_playlist_once() {
     if (playlist_initialized) return;
 
     playlist.clear();
-    // 使用互斥锁保护 SD 卡访问
     if (xSemaphoreTake(sd_mutex, pdMS_TO_TICKS(3000)) == pdTRUE) {
         File root = SD_MMC.open("/");
         if (root) {
             File file = root.openNextFile();
             while (file) {
                 const char* filename = file.name();
-                // 提取扩展名并检查
                 const char* dot = strrchr(filename, '.');
                 if (!file.isDirectory() && dot && strcasecmp(dot, ".mp3") == 0) {
                     playlist.push_back(String(filename));
@@ -142,7 +132,6 @@ void init_playlist_once() {
         }
         xSemaphoreGive(sd_mutex);
     } else {
-        // 如果无法获取互斥锁，返回以保护UI线程
         return;
     }
     
@@ -187,7 +176,6 @@ void build_music_scene() {
             lv_timer_del(music_ui_timer);
             music_ui_timer = NULL;
         }
-        // 清理内存并立即断开所有全局 UI 指针
         lv_scr_load(scr_menu);
         lv_obj_del_async(scr_music);
         scr_music = NULL;
@@ -321,6 +309,5 @@ void build_music_scene() {
         }
     }, 500, NULL);
     
-    // 在 build_music_scene() 结尾处添加：
-    if (music_ui_timer) lv_timer_resume(music_ui_timer); // ✅ 进入时恢复定时器
+    if (music_ui_timer) lv_timer_resume(music_ui_timer);
 }

@@ -96,39 +96,39 @@ void randomize_prices() {
             var = (rand() % (items[i].volatility * 2)) - items[i].volatility;
         }
         items[i].current_price = items[i].base_price + var;
-        if(items[i].current_price < 5) items[i].current_price = 5; 
+        if(items[i].current_price < 5) items[i].current_price = 5;
         if(items[i].source_loc != -1 && items[i].source_loc != bj.location) {
-            items[i].current_price *= 2; 
+            items[i].current_price *= 2;
         }
     }
 
     int r = rand() % 100;
-    if (r < 8) { 
+    if (r < 8) {
         items[0].current_price *= (3 + rand()%3); items[4].current_price *= (4 + rand()%5);
         strcpy(bj.rumor, "海关严防死守！香烟和走私汽车黑市价格狂飙！");
-    } else if (r < 16) { 
+    } else if (r < 16) {
         items[3].current_price /= 4; items[7].current_price /= 4;
         strcpy(bj.rumor, "315晚会重拳出击，假冒化妆品和三株口服液无人问津！");
-    } else if (r < 22) { 
+    } else if (r < 22) {
         items[1].current_price *= (3 + rand()%3); items[21].current_price *= (2 + rand()%3);
         strcpy(bj.rumor, "严打盗版！市面上的盗版VCD和光盘被扫荡一空！");
-    } else if (r < 28) { 
+    } else if (r < 28) {
         items[14].current_price /= 5; items[8].current_price /= 3;
         strcpy(bj.rumor, "曝光！高档假酒喝出人命，假貂皮掉毛，价格跌落谷底！");
-    } else if (r < 34) { 
+    } else if (r < 34) {
         items[10].current_price *= (2 + rand()%3); items[11].current_price *= (2 + rand()%3);
         strcpy(bj.rumor, "炒作热潮来袭！认购证和猴票遭大妈们疯抢！");
     } else if (r < 40) {
         items[15].current_price *= (3 + rand()%2); items[12].current_price *= (2 + rand()%2);
         strcpy(bj.rumor, "新一波科技热！小霸王学习机和二手BP机供不应求！");
     } else if (r < 45) {
-        items[25].current_price /= 4; 
+        items[25].current_price /= 4;
         strcpy(bj.rumor, "火车站派出所严打票贩子！黄牛票全砸手里了！");
-    } else if (r < 55) { 
+    } else if (r < 55) {
         int idx; do { idx = rand() % NUM_ITEMS; } while (items[idx].source_loc != -1);
         items[idx].current_price = items[idx].base_price / (3 + rand()%3);
         snprintf(bj.rumor, 128, "大甩卖：%s 价格跳水，市场恐慌大抛售！", items[idx].name);
-    } else if (r < 65) { 
+    } else if (r < 65) {
         int idx; do { idx = rand() % NUM_ITEMS; } while (items[idx].source_loc != -1);
         items[idx].current_price = items[idx].base_price * (2 + rand()%4);
         snprintf(bj.rumor, 128, "黑市急需！%s 有价无市，有货的都发大财了！", items[idx].name);
@@ -167,10 +167,10 @@ void next_day(int new_loc) {
     
     int pr = rand() % 100;
     static char event_msg[256];
-    event_msg[0] = '\0'; // 每次进入函数时清空首字符
+    event_msg[0] = '\0';
     
     if (pr < 5) {
-        bj.cash += 3000; 
+        bj.cash += 3000;
         snprintf(event_msg, sizeof(event_msg), "偶遇曾经的发小！\n现在人家发财了，硬塞给你 3000 块茶水钱！");
     } else if (pr < 10) {
         int lost = bj.cash * 0.15 + 100; if (bj.cash < lost) lost = bj.cash;
@@ -183,7 +183,7 @@ void next_day(int new_loc) {
         int lost = 800; if (bj.cash < lost) lost = bj.cash; bj.cash -= lost;
         snprintf(event_msg, sizeof(event_msg), "被仙人跳了！\n在潘家园贪便宜买假古董，被坑了 %d 块钱！", lost);
     } else if (pr < 25) {
-        bj.health -= 25; 
+        bj.health -= 25;
         snprintf(event_msg, sizeof(event_msg), "吃了路边不干净的卤煮火烧，\n上吐下泻一整天，健康 -25！");
     } else if (pr < 30) {
         if(bj.health < 100) { bj.health = 100; snprintf(event_msg, sizeof(event_msg), "遇到了胡同里的老中医，\n几副中药下去，你的健康恢复满了！"); }
@@ -204,7 +204,7 @@ void next_day(int new_loc) {
     }
 
     randomize_prices(); refresh_beijing_ui();
-    if (event_msg[0] != '\0') show_bj_msg(event_msg); 
+    if (event_msg[0] != '\0') show_bj_msg(event_msg);
     check_end_game();
 }
 
@@ -213,25 +213,18 @@ bool has_beijing_save() {
 }
 
 void save_beijing_game() {
-    // 先写入临时文件
     File file = LittleFS.open("/beijing_temp.sav", FILE_WRITE);
     if (!file) { show_bj_msg("保存失败！"); return; }
     size_t written = file.write((uint8_t*)&bj, sizeof(bj));
     file.close();
     
-    // 验证写入完整性
     if (written == sizeof(bj)) {
-        // 直接原子重命名，如果系统断电，要么是旧档，要么是新档，绝不会全丢
         if (LittleFS.rename("/beijing_temp.sav", "/beijing.sav")) {
             show_bj_msg("游戏进度已成功保存至 LittleFS！");
         } else {
-            show_bj_msg("重命名失败，存档异常！");
-            // 失败处理
             LittleFS.remove("/beijing_temp.sav");
         }
     } else {
-        show_bj_msg("写入异常，存档终止！");
-        // 清理临时文件
         LittleFS.remove("/beijing_temp.sav");
     }
 }
@@ -324,7 +317,7 @@ void populate_sub_menu(int type) {
         lv_obj_t * child = lv_obj_get_child(list_sub, i);
         lv_obj_set_style_bg_color(child, lv_color_hex(0x333333), 0);
         lv_obj_set_style_border_color(child, lv_color_hex(0x555555), 0);
-        lv_obj_t * lbl = lv_obj_get_child(child, 0); 
+        lv_obj_t * lbl = lv_obj_get_child(child, 0);
         if (lbl) {
             lv_obj_add_style(lbl, &style_cn, 0);
             lv_obj_set_style_text_color(lbl, lv_color_hex(0xE0E0E0), 0);
@@ -441,9 +434,9 @@ void refresh_beijing_ui() {
         lv_obj_add_style(lbl, &style_cn, 0);
         
         if(items[i].current_price >= bj.inventory[i].avg_buy_price) {
-            lv_obj_set_style_text_color(lbl, lv_color_hex(0x44FF44), 0); 
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0x44FF44), 0);
         } else {
-            lv_obj_set_style_text_color(lbl, lv_color_hex(0xFF5555), 0); 
+            lv_obj_set_style_text_color(lbl, lv_color_hex(0xFF5555), 0);
         }
         lv_obj_add_event_cb(btn, [](lv_event_t *e){ open_trade_modal((int)(intptr_t)lv_event_get_user_data(e), false); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
@@ -472,13 +465,13 @@ void build_beijing_scene() {
     lv_obj_set_style_bg_color(tv_btns, lv_color_hex(0x222222), 0);
     lv_obj_set_style_text_color(tv_btns, lv_color_hex(0xCCCCCC), 0);
     
-    lv_obj_set_style_pad_right(tv_btns, 45, 0); 
+    lv_obj_set_style_pad_right(tv_btns, 45, 0);
 
     lv_obj_t * btn_menu = lv_btn_create(scr_beijing);
     lv_obj_set_size(btn_menu, 45, 35);
     lv_obj_set_style_bg_color(btn_menu, lv_color_hex(0x333333), 0);
-    lv_obj_set_style_radius(btn_menu, 0, 0); 
-    lv_obj_align_to(btn_menu, tv, LV_ALIGN_TOP_RIGHT, 0, 0); 
+    lv_obj_set_style_radius(btn_menu, 0, 0);
+    lv_obj_align_to(btn_menu, tv, LV_ALIGN_TOP_RIGHT, 0, 0);
     
     lv_obj_t * lbl_m = lv_label_create(btn_menu);
     lv_obj_add_style(lbl_m, &style_cn, 0);
@@ -504,10 +497,10 @@ void build_beijing_scene() {
         lv_obj_t * b = lv_btn_create(tab_move);
         lv_obj_set_size(b, 100, 35);
         lv_obj_align(b, LV_ALIGN_TOP_LEFT, 10 + (i%2)*115, (i/2)*40);
-        lv_obj_set_style_bg_color(b, lv_color_hex(0x333333), 0); 
+        lv_obj_set_style_bg_color(b, lv_color_hex(0x333333), 0);
         lv_obj_t * l = lv_label_create(b); lv_obj_add_style(l, &style_cn, 0);
         lv_label_set_text(l, locations[i]); lv_obj_center(l);
-        lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0); 
+        lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
         lv_obj_add_event_cb(b, [](lv_event_t *e){ next_day((int)(intptr_t)lv_event_get_user_data(e)); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
 
@@ -627,7 +620,7 @@ void build_beijing_scene() {
         lv_obj_t * b = lv_btn_create(menu_overlay);
         lv_obj_set_size(b, 160, 45);
         lv_obj_align(b, LV_ALIGN_CENTER, 0, -80 + i*55);
-        lv_obj_set_style_bg_color(b, lv_color_hex(0x333333), 0); 
+        lv_obj_set_style_bg_color(b, lv_color_hex(0x333333), 0);
         lv_obj_t * l = lv_label_create(b); lv_obj_add_style(l, &style_cn, 0);
         lv_label_set_text(l, menu_opts[i]); lv_obj_center(l);
         lv_obj_set_style_text_color(l, lv_color_hex(0xFFFFFF), 0);
@@ -640,10 +633,8 @@ void build_beijing_scene() {
                 save_beijing_game();
                 lv_obj_add_flag(menu_overlay, LV_OBJ_FLAG_HIDDEN);
                 
-                // 【修复】：先暂存指针，或者先调用 del_async 再置空
                 lv_obj_t * temp_scr = scr_beijing;
                 
-                // 清空所有全局/静态 lv_obj_t* 指针
                 scr_beijing = NULL;
                 lbl_bj_status = NULL;
                 tab_market = NULL;
@@ -664,11 +655,10 @@ void build_beijing_scene() {
                 lbl_sub_title = NULL;
                 
                 lv_scr_load(scr_menu);
-                lv_obj_del_async(temp_scr); // 【修复】：传递有效指针给LVGL
+                lv_obj_del_async(temp_scr);
             }
         }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
     }
-
     modal_msg = lv_obj_create(scr_beijing);
     lv_obj_set_size(modal_msg, 200, 160); lv_obj_center(modal_msg);
     lv_obj_set_style_bg_color(modal_msg, lv_color_hex(0x222222), 0);
@@ -678,13 +668,13 @@ void build_beijing_scene() {
     
     lbl_msg_content = lv_label_create(modal_msg);
     lv_obj_add_style(lbl_msg_content, &style_cn, 0);
-    lv_obj_set_style_text_color(lbl_msg_content, lv_color_hex(0xFFFFFF), 0); 
+    lv_obj_set_style_text_color(lbl_msg_content, lv_color_hex(0xFFFFFF), 0);
     lv_obj_set_width(lbl_msg_content, 180); lv_obj_align(lbl_msg_content, LV_ALIGN_TOP_MID, 0, 0);
     
     lv_obj_t * btn_ok_msg = lv_btn_create(modal_msg);
     lv_obj_set_size(btn_ok_msg, 80, 35); lv_obj_align(btn_ok_msg, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_color(btn_ok_msg, lv_color_hex(0x444444), 0);
-    lv_obj_t * lok = lv_label_create(btn_ok_msg); lv_obj_add_style(lok, &style_cn, 0); 
+    lv_obj_t * lok = lv_label_create(btn_ok_msg); lv_obj_add_style(lok, &style_cn, 0);
     lv_label_set_text(lok, "知道了"); lv_obj_center(lok);
     lv_obj_add_event_cb(btn_ok_msg, [](lv_event_t *e){ lv_obj_add_flag(modal_msg, LV_OBJ_FLAG_HIDDEN); }, LV_EVENT_CLICKED, NULL);
 }
