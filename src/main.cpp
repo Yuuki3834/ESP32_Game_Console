@@ -253,12 +253,18 @@ void setup() {
     // 构建并加载主菜单
     build_main_menu();
     lv_scr_load(scr_menu);
+
+    // 初始化Web LED控制
+    initWebLEDControl();
 }
 
 /**
  * @brief Arduino主循环函数
  */
 void loop() {
+    // 处理Web控制请求
+    webLEDControlLoop();
+
     uint32_t time_till_next = lv_timer_handler();
     if(time_till_next < 5) time_till_next = 5;
     delay(time_till_next);

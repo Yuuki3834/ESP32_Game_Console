@@ -1450,3 +1450,70 @@ void build_tower_scene() {
         if (shop_modal) lv_obj_add_flag(shop_modal, LV_OBJ_FLAG_HIDDEN);
     }, 0x555555);
 }
+
+// ==================== 网页控制移动函数 ====================
+void tower_move(int dx, int dy) {
+    if (map_data == NULL) return;
+    
+    int nx = hero.x + dx;
+    int ny = hero.y + dy;
+    
+    // 边界检查
+    if (nx < 0 || nx >= MAP_SIZE || ny < 0 || ny >= MAP_SIZE) return;
+    
+    int target_tile = map_data[current_floor][ny][nx];
+    bool can_move = false;
+    
+    if (target_tile == T_EMPTY) {
+        can_move = true;
+    } else if (target_tile == T_KEY_Y) {
+        hero.keys_y++; can_move = true;
+    } else if (target_tile == T_KEY_B) {
+        hero.keys_b++; can_move = true;
+    } else if (target_tile == T_KEY_R) {
+        hero.keys_r++; can_move = true;
+    } else if (target_tile == T_POTION_R) {
+        hero.hp += 200; can_move = true;
+    } else if (target_tile == T_POTION_B) {
+        hero.hp += 500; can_move = true;
+    } else if (target_tile == T_GEM_R) {
+        hero.atk += 5; can_move = true;
+    } else if (target_tile == T_GEM_B) {
+        hero.def += 5; can_move = true;
+    } else if (target_tile == T_SWORD) {
+        hero.atk += 10; can_move = true;
+    } else if (target_tile == T_SHIELD) {
+        hero.def += 10; can_move = true;
+    } else if (target_tile == T_DOOR_Y) {
+        if (hero.keys_y > 0) { hero.keys_y--; can_move = true; }
+    } else if (target_tile == T_DOOR_B) {
+        if (hero.keys_b > 0) { hero.keys_b--; can_move = true; }
+    } else if (target_tile == T_DOOR_R) {
+        if (hero.keys_r > 0) { hero.keys_r--; can_move = true; }
+    } else if (target_tile == T_STAIR_UP) {
+        change_floor(current_floor + 1, true);
+        return;
+    } else if (target_tile == T_STAIR_DOWN) {
+        change_floor(current_floor - 1, false);
+        return;
+    } else if (target_tile == T_NPC || target_tile == T_PRINCESS || target_tile == T_SHOP) {
+        can_move = true;
+    } else if ((target_tile >= T_SLIME_G && target_tile <= T_GUARD) || target_tile == T_BOSS) {
+        int dmg = get_damage(target_tile);
+        if (dmg != -1) {
+            hero.hp -= dmg;
+            EnemyDef e = get_enemy_data(target_tile, current_floor);
+            hero.gold += e.gold;
+            hero.exp += e.exp;
+            can_move = true;
+        }
+    }
+    
+    if (can_move) {
+        map_data[current_floor][ny][nx] = T_EMPTY;
+        hero.x = nx;
+        hero.y = ny;
+        if (map_cont) lv_obj_invalidate(map_cont);
+        update_hero_stats_ui();
+    }
+}

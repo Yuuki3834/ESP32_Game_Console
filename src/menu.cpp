@@ -50,28 +50,12 @@ void build_main_menu() {
     };
 
     create_menu_btn(LV_SYMBOL_IMAGE "  魔塔", [](lv_event_t *e){
-        if (scr_tower == NULL) build_tower_scene(); 
+        if (scr_tower == NULL) build_tower_scene();
         
-        if (!is_tower_started) { 
-            if (!load_tower_game()) reset_tower_game(); 
+        if (!is_tower_started) {
+            if (!load_tower_game()) reset_tower_game();
         }
         lv_scr_load_anim(scr_tower, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
-    });
-
-    create_menu_btn(LV_SYMBOL_SHUFFLE "  纵横四海", [](lv_event_t *e){
-        if (scr_zongheng == NULL) {
-            build_zongheng_scene();
-            if (!load_zongheng_game()) reset_zongheng_game();
-        }
-        lv_scr_load_anim(scr_zongheng, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
-    });
-
-    create_menu_btn(LV_SYMBOL_HOME "  北京浮生记", [](lv_event_t *e){
-        if (scr_beijing == NULL) {
-            build_beijing_scene();
-            if (!load_beijing_game()) reset_beijing_game();
-        }
-        lv_scr_load_anim(scr_beijing, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
     });
 
     create_menu_btn(LV_SYMBOL_AUDIO "  音乐播放器", [](lv_event_t *e){
