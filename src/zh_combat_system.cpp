@@ -1,5 +1,4 @@
 ﻿#include "global.h"
-#include "zongheng_types.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

@@ -18,7 +18,7 @@ void build_main_menu() {
     lv_obj_set_style_line_width(line, 2, 0);
 
     lv_obj_t * btn_container = lv_obj_create(scr_menu);
-    lv_obj_set_size(btn_container, 240, 265);
+    lv_obj_set_size(btn_container, 240, 280);
     lv_obj_align(btn_container, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(btn_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(btn_container, 0, 0);
@@ -49,6 +49,22 @@ void build_main_menu() {
         return btn;
     };
 
+    create_menu_btn(LV_SYMBOL_SHUFFLE "  纵横四海", [](lv_event_t *e){
+        if (scr_zongheng == NULL) {
+            build_zongheng_scene();
+            if (!load_zongheng_game()) reset_zongheng_game();
+        }
+        lv_scr_load_anim(scr_zongheng, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+    });
+
+    create_menu_btn(LV_SYMBOL_HOME "  北京浮生记", [](lv_event_t *e){
+        if (scr_beijing == NULL) {
+            build_beijing_scene();
+            if (!load_beijing_game()) reset_beijing_game();
+        }
+        lv_scr_load_anim(scr_beijing, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+    });
+
     create_menu_btn(LV_SYMBOL_IMAGE "  魔塔", [](lv_event_t *e){
         if (scr_tower == NULL) build_tower_scene();
         
@@ -56,6 +72,11 @@ void build_main_menu() {
             if (!load_tower_game()) reset_tower_game();
         }
         lv_scr_load_anim(scr_tower, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+    });
+
+    create_menu_btn(LV_SYMBOL_TINT "  RGB 氛围灯", [](lv_event_t *e){
+        if (scr_led == NULL) build_led_scene();
+        lv_scr_load_anim(scr_led, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
     });
 
     create_menu_btn(LV_SYMBOL_AUDIO "  音乐播放器", [](lv_event_t *e){
@@ -66,10 +87,5 @@ void build_main_menu() {
     create_menu_btn(LV_SYMBOL_FILE "  TXT 电子书", [](lv_event_t *e){
         if (scr_reader == NULL) build_reader_scene();
         lv_scr_load_anim(scr_reader, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
-    });
-
-    create_menu_btn(LV_SYMBOL_TINT "  RGB 氛围灯", [](lv_event_t *e){
-        if (scr_led == NULL) build_led_scene();
-        lv_scr_load_anim(scr_led, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
     });
 }

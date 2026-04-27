@@ -1,4 +1,4 @@
-#include "zongheng_types.h"
+#include "global.h"
 
 // ==========================================
 // 城市内部节点生成宏 (City Inner Generation Macros)

@@ -41,9 +41,7 @@ lv_style_t style_cn;
 SemaphoreHandle_t sd_mutex = NULL;
 
 // ==================== 触摸屏相关函数 ====================
-/**
- * @brief 初始化触摸屏
- */
+// 初始化触摸屏
 void initTouch() {
     pinMode(TP_RST, OUTPUT);
     digitalWrite(TP_RST, LOW);
@@ -55,12 +53,7 @@ void initTouch() {
     Wire.setTimeout(100);
 }
 
-/**
- * @brief 获取触摸坐标
- * @param x 触摸X坐标（输出参数）
- * @param y 触摸Y坐标（输出参数）
- * @return 是否检测到有效触摸
- */
+// 获取触摸坐标，返回是否检测到有效触摸
 bool getTouchPos(uint16_t &x, uint16_t &y) {
     Wire.beginTransmission(FT6336_ADDR);
     Wire.write(0x02);
@@ -81,9 +74,7 @@ bool getTouchPos(uint16_t &x, uint16_t &y) {
 }
 
 // ==================== 音频相关函数 ====================
-/**
- * @brief 初始化ES8311音频解码芯片
- */
+// 初始化ES8311音频解码芯片
 void initES8311() {
     Wire.beginTransmission(ES8311_ADDR);
     if (Wire.endTransmission() != 0) {
@@ -124,12 +115,7 @@ void initES8311() {
 }
 
 // ==================== LVGL显示相关函数 ====================
-/**
- * @brief LVGL显示刷新回调函数
- * @param disp 显示驱动器指针
- * @param area 刷新区域
- * @param color_p 颜色数据指针
- */
+// LVGL显示刷新回调
 void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color_p) {
     uint32_t w = (area->x2 - area->x1 + 1), h = (area->y2 - area->y1 + 1);
     tft.startWrite();
@@ -139,11 +125,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
     lv_disp_flush_ready(disp);
 }
 
-/**
- * @brief LVGL触摸屏读取回调函数
- * @param indev 输入设备驱动器指针
- * @param data 输入数据结构体指针
- */
+// LVGL触摸屏读取回调
 void my_touchpad_read(lv_indev_drv_t *indev, lv_indev_data_t *data) {
     uint16_t tx, ty;
     if(getTouchPos(tx, ty)) {
@@ -160,10 +142,7 @@ void my_touchpad_read(lv_indev_drv_t *indev, lv_indev_data_t *data) {
 }
 
 // ==================== 内存管理函数 ====================
-/**
- * @brief 分配显示缓冲区内存
- * @return 是否分配成功
- */
+// 分配显示缓冲区内存
 bool allocateDisplayBuffers() {
     // 强制从内部SRAM中分配支持DMA的内存，避免PSRAM导致的SPI DMA访问问题
     buf1 = (lv_color_t*)heap_caps_malloc(240 * 160 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA);
@@ -184,9 +163,7 @@ bool allocateDisplayBuffers() {
 }
 
 // ==================== 主程序 ====================
-/**
- * @brief Arduino初始化函数
- */
+// Arduino初始化函数
 void setup() {
     // 基础初始化
     Serial.begin(115200);
@@ -253,18 +230,10 @@ void setup() {
     // 构建并加载主菜单
     build_main_menu();
     lv_scr_load(scr_menu);
-
-    // 初始化Web LED控制
-    initWebLEDControl();
 }
 
-/**
- * @brief Arduino主循环函数
- */
+// Arduino主循环函数
 void loop() {
-    // 处理Web控制请求
-    webLEDControlLoop();
-
     uint32_t time_till_next = lv_timer_handler();
     if(time_till_next < 5) time_till_next = 5;
     delay(time_till_next);

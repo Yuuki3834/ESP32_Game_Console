@@ -1,5 +1,5 @@
 ﻿#include <Arduino.h>
-#include "zongheng_types.h"
+#include "global.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

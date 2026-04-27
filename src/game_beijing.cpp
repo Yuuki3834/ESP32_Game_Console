@@ -133,6 +133,12 @@ void randomize_prices() {
         items[idx].current_price = items[idx].base_price * (2 + rand()%4);
         snprintf(bj.rumor, 128, "黑市急需！%s 有价无市，有货的都发大财了！", items[idx].name);
     }
+
+    // [DEBUG] 输出所有商品价格
+    Serial.printf("[BJ_DEBUG] randomize_prices: bj.location=%d, event_r=%d\n", bj.location, r);
+    for(int i=0; i<NUM_ITEMS; i++) {
+        Serial.printf("[BJ_DEBUG]   item[%d]: %s, price=%d, src_loc=%d\n", i, items[i].name, items[i].current_price, items[i].source_loc);
+    }
 }
 
 void refresh_beijing_ui();
@@ -393,21 +399,34 @@ void execute_trade() {
 }
 
 void refresh_beijing_ui() {
-    if (!scr_beijing) return;
+    if (!scr_beijing) {
+        Serial.println("[BJ_DEBUG] refresh_beijing_ui: scr_beijing is NULL, returning");
+        return;
+    }
 
     static char buf[256];
-    snprintf(buf, sizeof(buf), "第%d天 [%s] 血:%d 仓:%d/%d\n%s\n现:%ld 存:%ld 欠:%ld", 
-            bj.day > MAX_DAYS ? MAX_DAYS : bj.day, locations[bj.location], 
+    snprintf(buf, sizeof(buf), "第%d天 [%s] 血:%d 仓:%d/%d\n%s\n现:%ld 存:%ld 欠:%ld",
+            bj.day > MAX_DAYS ? MAX_DAYS : bj.day, locations[bj.location],
             bj.health, bj.storage, bj.max_storage, bj.rumor,
             bj.cash, bj.bank, bj.debt);
     lv_label_set_text(lbl_bj_status, buf);
 
-    if (bj.day >= 999) return;
+    if (bj.day >= 999) {
+        Serial.println("[BJ_DEBUG] refresh_beijing_ui: bj.day >= 999, returning");
+        return;
+    }
 
     lv_obj_clean(list_market);
+    int market_count = 0;
     for(int i=0; i<NUM_ITEMS; i++) {
-        if(items[i].current_price <= 0) continue;
-        if(items[i].source_loc != -1 && items[i].source_loc != bj.location) continue;
+        if(items[i].current_price <= 0) {
+            Serial.printf("[BJ_DEBUG]   market skip item[%d] %s: price=%d <= 0\n", i, items[i].name, items[i].current_price);
+            continue;
+        }
+        if(items[i].source_loc != -1 && items[i].source_loc != bj.location) {
+            Serial.printf("[BJ_DEBUG]   market skip item[%d] %s: src_loc=%d != bj.location=%d\n", i, items[i].name, items[i].source_loc, bj.location);
+            continue;
+        }
 
         static char item_buf[64];
         snprintf(item_buf, sizeof(item_buf), "%s: %d 块", items[i].name, items[i].current_price);
@@ -419,9 +438,12 @@ void refresh_beijing_ui() {
         lv_obj_add_style(lbl, &style_cn, 0);
         lv_obj_set_style_text_color(lbl, lv_color_hex(0xE0E0E0), 0);
         lv_obj_add_event_cb(btn, [](lv_event_t *e){ open_trade_modal((int)(intptr_t)lv_event_get_user_data(e), true); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        market_count++;
     }
+    Serial.printf("[BJ_DEBUG] refresh_beijing_ui: market_count=%d, bj.location=%d\n", market_count, bj.location);
 
     lv_obj_clean(list_bag);
+    int bag_count = 0;
     for(int i=0; i<NUM_ITEMS; i++) {
         if(bj.inventory[i].count <= 0) continue;
         char item_buf[64];
@@ -439,7 +461,9 @@ void refresh_beijing_ui() {
             lv_obj_set_style_text_color(lbl, lv_color_hex(0xFF5555), 0);
         }
         lv_obj_add_event_cb(btn, [](lv_event_t *e){ open_trade_modal((int)(intptr_t)lv_event_get_user_data(e), false); }, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+        bag_count++;
     }
+    Serial.printf("[BJ_DEBUG] refresh_beijing_ui: bag_count=%d\n", bag_count);
 }
 
 void build_beijing_scene() {
@@ -680,8 +704,12 @@ void build_beijing_scene() {
 }
 
 void reset_beijing_game() {
+    // 初始化随机数种子，确保每天市场价格不同
+    srand(millis());
+    
     bj = {1, 2000, 0, 5000, 0.075f, 100, 0, 100, 0};
     for(int i=0; i<NUM_ITEMS; i++) bj.inventory[i] = {0, 0};
+    Serial.printf("[BJ_DEBUG] reset_beijing_game: bj.location=%d, bj.day=%d\n", bj.location, bj.day);
     randomize_prices();
     refresh_beijing_ui();
 }
