@@ -1,6 +1,6 @@
 #include "global.h"
 #include <SD_MMC.h>
-#include <LittleFS.h>
+#include <Preferences.h>
 #include <vector>
 
 lv_obj_t * scr_reader = NULL;
@@ -25,43 +25,32 @@ bool is_remove_mode = false;
 int line_spacing = 5;
 int screen_brightness = 255;
 
+Preferences reader_prefs;
+
 void load_bookshelf() {
     bookshelf_files.clear();
-    if (LittleFS.exists("/books.dat")) {
-        File f = LittleFS.open("/books.dat", FILE_READ);
-        while (f.available()) {
-            String path = f.readStringUntil('\n');
-            path.trim();
-            if (path.length() > 0) bookshelf_files.push_back(path);
-        }
-        f.close();
+    reader_prefs.begin("reader", true);
+    int count = reader_prefs.getInt("count", 0);
+    for (int i = 0; i < count; i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "book_%d", i);
+        char path[256];
+        reader_prefs.getString(key, path, sizeof(path));
+        if (strlen(path) > 0) bookshelf_files.push_back(String(path));
     }
+    reader_prefs.end();
 }
 
 void save_bookshelf() {
-    File f = LittleFS.open("/books_temp.dat", FILE_WRITE);
-    if (!f) return;
-    
-    size_t total_written = 0;
-    for (String path : bookshelf_files) {
-        size_t written = f.println(path);
-        if (written > 0) {
-            total_written += written;
-        } else {
-            f.close();
-            LittleFS.remove("/books_temp.dat");
-            return;
-        }
+    reader_prefs.begin("reader", false);
+    reader_prefs.clear();
+    reader_prefs.putInt("count", bookshelf_files.size());
+    for (size_t i = 0; i < bookshelf_files.size(); i++) {
+        char key[16];
+        snprintf(key, sizeof(key), "book_%d", (int)i);
+        reader_prefs.putString(key, bookshelf_files[i].c_str());
     }
-    f.close();
-    
-    if (total_written > 0 || bookshelf_files.empty()) {
-        if (!LittleFS.rename("/books_temp.dat", "/books.dat")) {
-            LittleFS.remove("/books_temp.dat");
-        }
-    } else {
-        LittleFS.remove("/books_temp.dat");
-    }
+    reader_prefs.end();
 }
 
 void refresh_bookshelf_ui();

@@ -226,9 +226,10 @@ void refresh_zongheng_ui() {
             zh_player.gold += zh_player.bank_gold; zh_player.bank_gold = 0; zh_log("存款已取出。"); 
             lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); 
         });
-        add_act_btn("贷款 1000 铜贝", [](lv_event_t *e){ 
-            zh_player.debt += 1000; zh_player.gold += 1000; zh_log("放款成功。换港口扣7.5%利息。"); 
-            lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL); 
+        add_act_btn("贷款 1000 铜贝", [](lv_event_t *e){
+            zh_player.debt += 1000; zh_player.gold += 1000; zh_log("放款成功。换港口扣7.5%利息。");
+            zh_market_state = 0;  // 重置市场状态，防止市场界面空白
+            lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
         });
         add_act_btn("偿还 1000 欠款", [](lv_event_t *e){
             if(zh_player.debt <= 0) zh_log("没有欠款。"); 

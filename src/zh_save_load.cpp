@@ -1,7 +1,7 @@
 #include "global.h"
 #include <stdio.h>
 #include <string.h>
-#include <LittleFS.h>
+#include <Preferences.h>
 
 // =========================================================================
 // 外部依赖声明
@@ -14,11 +14,18 @@ extern void refresh_market_prices();
 extern void refresh_quest_ui();
 extern const ZH_Location* get_current_loc();
 
+Preferences zh_prefs;
+
 // =========================================================================
 // 存档管理与重置
 // =========================================================================
 void reset_zongheng_game() {
-    strcpy(zh_player.name, "水手"); 
+    // 删除旧存档
+    zh_prefs.begin("zongheng", false);
+    zh_prefs.clear();
+    zh_prefs.end();
+    
+    strcpy(zh_player.name, "水手");
     zh_player.level = 1; zh_player.exp = 0; zh_player.max_hp = 100; zh_player.hp = 100; zh_player.atk = 15; zh_player.def = 5;
     zh_player.max_mp = 100; zh_player.mp = 100; zh_player.base_crit = 5; zh_player.base_dodge = 5;
     for(int i = 0; i < 160; i++) zh_player.learned_skills[i] = 0;
@@ -52,46 +59,41 @@ void reset_zongheng_game() {
     lv_async_call([](void*){ refresh_zongheng_ui(); }, NULL);
 }
 
-bool has_zongheng_save() { return LittleFS.exists("/zh_save.dat"); }
-
-void save_zongheng_game() {
-    File file = LittleFS.open("/zh_save_temp.dat", FILE_WRITE);
-    if (!file) { zh_log("系统：存档失败！"); return; }
-    size_t written = file.write((uint8_t*)&zh_player, sizeof(zh_player));
-    file.close();
-    
-    if (written == sizeof(zh_player)) {
-        if (LittleFS.rename("/zh_save_temp.dat", "/zh_save.dat")) {
-            zh_log("系统：游戏进度已保存。");
-        } else {
-            zh_log("系统：重命名失败，存档异常！");
-            LittleFS.remove("/zh_save_temp.dat");
-        }
-    } else {
-        zh_log("系统：写入异常，存档终止！");
-        LittleFS.remove("/zh_save_temp.dat");
-    }
+bool has_zongheng_save() {
+    zh_prefs.begin("zongheng", true);
+    bool exists = zh_prefs.isKey("save");
+    zh_prefs.end();
+    return exists;
 }
 
-bool load_zongheng_game() { 
-    if (!LittleFS.exists("/zh_save.dat")) return false; 
-    File file = LittleFS.open("/zh_save.dat", FILE_READ); 
-    if (!file) return false; 
+void save_zongheng_game() {
+    zh_prefs.begin("zongheng", false);
+    zh_prefs.putBytes("save", &zh_player, sizeof(zh_player));
+    zh_prefs.end();
+    zh_log("系统：游戏进度已保存。");
+}
+
+bool load_zongheng_game() {
+    zh_prefs.begin("zongheng", true);
+    if (!zh_prefs.isKey("save")) { zh_prefs.end(); return false; }
     
-    for(int i = 0; i < 4; i++) zh_player.npc_gift_bits[i] = 0; 
+    size_t save_size = zh_prefs.getBytesLength("save");
+    if (save_size < sizeof(zh_player)) {
+        // 旧存档，补充新字段
+        for(int i = 0; i < 10; i++) zh_player.adjutants_roster[i] = 0;
+        zh_player.eq_adj_navigator = 0; zh_player.eq_adj_assault = 0;
+        zh_player.eq_adj_doctor = 0; zh_player.eq_adj_accountant = 0;
+    }
+    
+    zh_prefs.getBytes("save", &zh_player, sizeof(zh_player));
+    zh_prefs.end();
+    
+    for(int i = 0; i < 4; i++) zh_player.npc_gift_bits[i] = 0;
     for(int i = 0; i < 128; i++) zh_player.npc_status[i] = 0;
     
     memset(zh_player.story_status, 0, sizeof(zh_player.story_status));
     memset(zh_player.story_progress, 0, sizeof(zh_player.story_progress));
     memset(zh_player.story_counter, 0, sizeof(zh_player.story_counter));
-
-    if (file.size() < sizeof(zh_player)) {
-        for(int i = 0; i < 10; i++) zh_player.adjutants_roster[i] = 0;
-        zh_player.eq_adj_navigator = 0; zh_player.eq_adj_assault = 0; zh_player.eq_adj_doctor = 0; zh_player.eq_adj_accountant = 0;
-    }
-
-    file.read((uint8_t*)&zh_player, file.size() < sizeof(zh_player) ? file.size() : sizeof(zh_player)); 
-    file.close(); 
     
     if(zh_player.max_mp <= 0 || zh_player.max_mp > 1000000 || zh_player.level <= 0 || zh_player.level > 999) {
         zh_player.max_mp = 100 + zh_player.level * 10; zh_player.mp = zh_player.max_mp;
@@ -109,8 +111,9 @@ bool load_zongheng_game() {
     }
     if(needs_monster_reset) spawn_monsters_for_loc(zh_player.location_id);
     
-    refresh_market_prices(); 
-    const ZH_Location* loc = get_current_loc(); 
+    refresh_market_prices();
+    zh_market_state = 0;  // 重置市场状态，防止读档后市场空白
+    const ZH_Location* loc = get_current_loc();
     refresh_quest_ui();
     
     char buf[128]; 

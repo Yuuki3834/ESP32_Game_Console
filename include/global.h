@@ -201,6 +201,7 @@ extern lv_style_t style_cn;
 
 // 屏幕对象声明
 extern lv_obj_t *scr_tower;
+extern lv_obj_t *scr_2048;
 extern lv_obj_t *scr_beijing;
 extern lv_obj_t *scr_music;
 extern lv_obj_t *scr_reader;
@@ -209,6 +210,7 @@ extern lv_obj_t *scr_zongheng;
 
 // 游戏状态变量
 extern bool is_tower_started;
+extern bool is_2048_started;
 
 // SD 卡互斥锁
 extern SemaphoreHandle_t sd_mutex;
@@ -229,6 +231,15 @@ void save_tower_game();
 bool load_tower_game();
 bool has_tower_save();
 void tower_move(int dx, int dy);
+
+// --- 2048游戏相关函数 ---
+void build_2048_scene();
+void reset_2048_game();
+void refresh_2048_ui();
+void save_2048_game();
+bool load_2048_game();
+bool has_2048_save();
+void game_2048_move(int dx, int dy);
 
 // --- 北京游戏相关函数 ---
 void build_beijing_scene();
@@ -285,5 +296,9 @@ void refresh_quest_ui();
 void process_quest_kill(int monster_id);
 int check_bounty_spawn(int loc_id);
 void open_tavern_bounty_board();
+
+// --- Web控制相关函数 ---
+void initWebLEDControl();
+void webLEDControlLoop();
 
 #endif

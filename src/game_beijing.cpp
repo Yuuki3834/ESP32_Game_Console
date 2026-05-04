@@ -1,6 +1,6 @@
 ﻿#include "global.h"
 #include <stdlib.h>
-#include <LittleFS.h>
+#include <Preferences.h>
 
 lv_obj_t * scr_beijing = NULL;
 
@@ -214,34 +214,27 @@ void next_day(int new_loc) {
     check_end_game();
 }
 
+Preferences bj_prefs;
+
 bool has_beijing_save() {
-    return LittleFS.exists("/beijing.sav");
+    bj_prefs.begin("beijing", true);
+    bool exists = bj_prefs.isKey("save");
+    bj_prefs.end();
+    return exists;
 }
 
 void save_beijing_game() {
-    File file = LittleFS.open("/beijing_temp.sav", FILE_WRITE);
-    if (!file) { show_bj_msg("保存失败！"); return; }
-    size_t written = file.write((uint8_t*)&bj, sizeof(bj));
-    file.close();
-    
-    if (written == sizeof(bj)) {
-        if (LittleFS.rename("/beijing_temp.sav", "/beijing.sav")) {
-            show_bj_msg("游戏进度已成功保存至 LittleFS！");
-        } else {
-            LittleFS.remove("/beijing_temp.sav");
-        }
-    } else {
-        LittleFS.remove("/beijing_temp.sav");
-    }
+    bj_prefs.begin("beijing", false);
+    bj_prefs.putBytes("save", &bj, sizeof(bj));
+    bj_prefs.end();
+    show_bj_msg("游戏进度已成功保存！");
 }
 
 bool load_beijing_game() {
-    if (!LittleFS.exists("/beijing.sav")) return false;
-    File file = LittleFS.open("/beijing.sav", FILE_READ);
-    if (!file) return false;
-    if (file.size() != sizeof(bj)) { file.close(); return false; }
-    file.read((uint8_t*)&bj, sizeof(bj));
-    file.close();
+    bj_prefs.begin("beijing", true);
+    if (!bj_prefs.isKey("save")) { bj_prefs.end(); return false; }
+    bj_prefs.getBytes("save", &bj, sizeof(bj));
+    bj_prefs.end();
     refresh_beijing_ui();
     return true;
 }
@@ -706,6 +699,11 @@ void build_beijing_scene() {
 void reset_beijing_game() {
     // 初始化随机数种子，确保每天市场价格不同
     srand(millis());
+    
+    // 删除旧存档
+    bj_prefs.begin("beijing", false);
+    bj_prefs.clear();
+    bj_prefs.end();
     
     bj = {1, 2000, 0, 5000, 0.075f, 100, 0, 100, 0};
     for(int i=0; i<NUM_ITEMS; i++) bj.inventory[i] = {0, 0};

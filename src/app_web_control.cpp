@@ -32,8 +32,12 @@ struct HeroStats { int hp, atk, def, gold, exp, keys_y, keys_b, keys_r, x, y; };
 extern HeroStats hero;
 extern int current_floor;
 
+// ==================== 2048游戏变量引用 (来自game_2048.cpp) ====================
+extern int score_2048;
+extern int best_score_2048;
+
 // ==================== 游戏控制模式变量 ====================
-// 游戏控制模式: 0=无/LED控制, 1=LED控制, 2=魔塔
+// 游戏控制模式: 0=无/LED控制, 1=LED控制, 2=魔塔, 3=2048
 volatile uint8_t web_game_mode = 0;
 volatile bool web_control_active = false;
 
@@ -397,6 +401,7 @@ body {
     <div class="section-title">选择游戏</div>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
       <button onclick="startGame(2)" style="padding:16px 8px;border-radius:12px;border:2px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#ccc;font-size:13px;cursor:pointer">🗼<br>魔塔</button>
+      <button onclick="startGame(3)" style="padding:16px 8px;border-radius:12px;border:2px solid rgba(255,255,255,0.15);background:rgba(255,255,255,0.05);color:#ccc;font-size:13px;cursor:pointer">🎲<br>2048</button>
     </div>
   </div>
   <div class="section">
@@ -419,6 +424,28 @@ body {
       <button onclick="towerMove(-1,0)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:#fff;font-size:18px;cursor:pointer">◀</button>
       <button onclick="towerMove(0,1)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(81,207,102,0.3);background:rgba(81,207,102,0.1);color:#51cf66;font-size:18px;cursor:pointer">▼</button>
       <button onclick="towerMove(1,0)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:#fff;font-size:18px;cursor:pointer">▶</button>
+    </div>
+  </div>
+  <div class="section">
+    <button onclick="exitGameControl()" style="width:100%;padding:14px;border-radius:10px;border:2px solid rgba(255,100,100,0.3);background:rgba(255,100,100,0.1);color:#ff6b6b;font-size:15px;cursor:pointer">🚪 退出游戏控制</button>
+  </div>
+</div>
+
+<!-- 2048游戏控制 -->
+<div id="game2048Control" style="display:none">
+  <div class="section">
+    <div class="section-title">📊 2048 状态</div>
+    <div id="game2048Info" style="background:rgba(0,0,0,0.3);border-radius:10px;padding:10px;font-size:14px;line-height:1.6;color:#aaa;text-align:center;font-family:monospace">加载中...</div>
+  </div>
+  <div class="section">
+    <div class="section-title">🎮 方向控制</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:180px;margin:0 auto">
+      <div></div>
+      <button onclick="game2048Move(0,-1)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:#fff;font-size:18px;cursor:pointer">▲</button>
+      <div></div>
+      <button onclick="game2048Move(-1,0)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:#fff;font-size:18px;cursor:pointer">◀</button>
+      <button onclick="game2048Move(0,1)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(81,207,102,0.3);background:rgba(81,207,102,0.1);color:#51cf66;font-size:18px;cursor:pointer">▼</button>
+      <button onclick="game2048Move(1,0)" style="width:50px;height:50px;border-radius:10px;border:2px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.05);color:#fff;font-size:18px;cursor:pointer">▶</button>
     </div>
   </div>
   <div class="section">
@@ -627,6 +654,10 @@ function startGame(mode) {
         // 魔塔 - 显示方向控制
         document.getElementById('towerControl').style.display = 'block';
         updateTowerInfo();
+      } else if (mode === 3) {
+        // 2048 - 显示方向控制
+        document.getElementById('game2048Control').style.display = 'block';
+        update2048Info();
       }
     }
   }).catch(e => console.error(e));
@@ -661,14 +692,41 @@ function exitGameControl() {
   fetch('/cmd/game?mode=0').then(r => r.json()).then(data => {
     currentGameMode = 0;
     document.getElementById('towerControl').style.display = 'none';
+    document.getElementById('game2048Control').style.display = 'none';
     document.getElementById('gameMenu').style.display = 'none';
   }).catch(e => console.error(e));
 }
 
-// 定时同步魔塔状态
+function game2048Move(dx, dy) {
+  fetch('/cmd/2048?dx=' + dx + '&dy=' + dy).then(r => r.json()).then(data => {
+    if (data.score !== undefined) {
+      update2048InfoDisplay(data);
+    }
+  }).catch(e => console.error(e));
+}
+
+function update2048Info() {
+  fetch('/cmd/2048?action=status').then(r => r.json()).then(data => {
+    if (data.score !== undefined) {
+      update2048InfoDisplay(data);
+    }
+  }).catch(e => console.error(e));
+}
+
+function update2048InfoDisplay(data) {
+  const info = document.getElementById('game2048Info');
+  if (info) {
+    info.innerHTML = '<span style="color:#fff;font-size:18px">当前分数: ' + data.score + '</span><br>' +
+                     '<span style="color:#edc22e;font-size:16px">最高分: ' + data.best_score + '</span>';
+  }
+}
+
+// 定时同步游戏状态
 setInterval(() => {
   if (currentGameMode === 2) {
     updateTowerInfo();
+  } else if (currentGameMode === 3) {
+    update2048Info();
   }
 }, 1500);
 
@@ -851,15 +909,80 @@ static void handleGameCommand() {
     uint8_t mode = paramMode.toInt();
     
     if (mode == 0) {
-      // 退出游戏控制
+      // 退出游戏控制 - 同步保存并返回主页
       web_game_mode = 0;
       web_control_active = false;
-      Serial.println("[WebGame] 退出网页游戏控制");
+      
+      // 保存当前游戏状态
+      if (is_tower_started) {
+        save_tower_game();
+        is_tower_started = false;
+        Serial.println("[WebGame] 魔塔游戏已保存");
+      }
+      if (is_2048_started) {
+        save_2048_game();
+        is_2048_started = false;
+        Serial.println("[WebGame] 2048游戏已保存");
+      }
+      
+      // 返回主页（同步切换屏幕）
+      if (scr_menu != NULL) {
+        lv_scr_load(scr_menu);
+      }
+      // 删除游戏屏幕
+      if (scr_tower != NULL) {
+        lv_obj_del_async(scr_tower);
+        scr_tower = NULL;
+      }
+      if (scr_2048 != NULL) {
+        lv_obj_del_async(scr_2048);
+        scr_2048 = NULL;
+      }
+      
+      Serial.println("[WebGame] 退出网页游戏控制，已返回主页");
     } else if (mode == 2) {
-      // 进入游戏控制模式
+      // 进入魔塔游戏控制模式 - 同步打开魔塔游戏
       web_game_mode = mode;
       web_control_active = true;
-      Serial.print("[WebGame] 进入游戏控制模式: ");
+      
+      // 构建魔塔场景（如未构建）
+      if (scr_tower == NULL) {
+        build_tower_scene();
+      }
+      
+      // 加载或重置游戏
+      if (!is_tower_started) {
+        if (!load_tower_game()) {
+          reset_tower_game();
+        }
+      }
+      
+      // 切换到魔塔屏幕
+      lv_scr_load_anim(scr_tower, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+      
+      Serial.print("[WebGame] 进入魔塔游戏控制模式: ");
+      Serial.println(mode);
+    } else if (mode == 3) {
+      // 进入2048游戏控制模式 - 同步打开2048游戏
+      web_game_mode = mode;
+      web_control_active = true;
+      
+      // 构建2048场景（如未构建）
+      if (scr_2048 == NULL) {
+        build_2048_scene();
+      }
+      
+      // 加载或重置游戏
+      if (!is_2048_started) {
+        if (!load_2048_game()) {
+          reset_2048_game();
+        }
+      }
+      
+      // 切换到2048屏幕
+      lv_scr_load_anim(scr_2048, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+      
+      Serial.print("[WebGame] 进入2048游戏控制模式: ");
       Serial.println(mode);
     }
   }
@@ -902,6 +1025,32 @@ static void handleTowerCommand() {
   server.send(200, "application/json", json);
 }
 
+static void handle2048Command() {
+  String action = server.arg("action");
+  String paramDx = server.arg("dx");
+  String paramDy = server.arg("dy");
+  
+  // 如果不是2048模式，返回错误
+  if (web_game_mode != 3) {
+    server.send(200, "application/json", "{\"error\":\"not_in_2048_mode\"}");
+    return;
+  }
+  
+  // 处理移动
+  if (paramDx.length() > 0 && paramDy.length() > 0) {
+    int dx = paramDx.toInt();
+    int dy = paramDy.toInt();
+    game_2048_move(dx, dy);
+  }
+  
+  // 返回2048状态
+  String json = "{";
+  json += "\"score\":" + String(score_2048);
+  json += ",\"best_score\":" + String(best_score_2048);
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
 static void handleNotFound() {
   // 所有未知请求都走Captive Portal重定向
   handleCaptivePortal();
@@ -932,7 +1081,8 @@ void initWebLEDControl() {
   // 游戏控制路由
   server.on("/cmd/game", handleGameCommand);
   server.on("/cmd/tower", handleTowerCommand);
-   
+  server.on("/cmd/2048", handle2048Command);
+    
   // 启动服务器
   server.begin();
   server.onNotFound(handleNotFound);

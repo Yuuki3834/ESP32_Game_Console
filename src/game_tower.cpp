@@ -1,5 +1,5 @@
 #include "global.h"
-#include <LittleFS.h>
+#include <Preferences.h>
 
 #define MAP_SIZE 11
 #define TILE_SIZE 21
@@ -1120,74 +1120,74 @@ static void map_click_event_cb(lv_event_t * e) {
     }
 }
 
+Preferences tower_prefs;
+
 bool has_tower_save() {
-    return LittleFS.exists("/tower.sav");
+    tower_prefs.begin("tower", true);
+    bool exists = tower_prefs.isKey("hero");
+    tower_prefs.end();
+    return exists;
 }
 
 void save_tower_game() {
     if (map_data == NULL) return;
 
-    File file = LittleFS.open("/tower_temp.sav", FILE_WRITE);
-    if (!file) {
-        Serial.println("存档文件创建失败");
-        return;
-    }
-
+    tower_prefs.begin("tower", false);
+    tower_prefs.clear();
+    
     SaveData save = {hero, current_floor};
-    size_t written1 = file.write((uint8_t*)&save, sizeof(save));
-    size_t written2 = file.write((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
-    file.close();
-
-    if (written1 == sizeof(save) && written2 == MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)) {
-        if (LittleFS.rename("/tower_temp.sav", "/tower.sav")) {
-            Serial.println("✓ 游戏已存入 LittleFS");
-            show_message("【系统】\n当前游戏进度已成功存档！");
-        } else {
-            Serial.println("重命名失败，存档异常！");
-            show_message("【系统】\n存档失败，请重试！");
-            LittleFS.remove("/tower_temp.sav");
-        }
-    } else {
-        Serial.println("写入异常，存档终止！");
-        show_message("【系统】\n存档写入失败，请重试！");
-        LittleFS.remove("/tower_temp.sav");
+    tower_prefs.putBytes("hero", &save, sizeof(save));
+    
+    // 分块保存地图数据 (每块 4KB)
+    size_t total_map_size = MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int);
+    size_t chunk_size = 4096;
+    uint8_t* map_ptr = (uint8_t*)map_data;
+    for (size_t offset = 0; offset < total_map_size; offset += chunk_size) {
+        size_t remaining = total_map_size - offset;
+        size_t this_chunk = remaining < chunk_size ? remaining : chunk_size;
+        char key[16];
+        snprintf(key, sizeof(key), "map_%lu", (unsigned long)(offset / chunk_size));
+        tower_prefs.putBytes(key, map_ptr + offset, this_chunk);
     }
+    
+    tower_prefs.end();
+    Serial.println("✓ 游戏已存入 Preferences");
+    show_message("【系统】\n当前游戏进度已成功存档！");
 }
 
 bool load_tower_game() {
-    if (!LittleFS.exists("/tower.sav")) return false;
-
-    File file = LittleFS.open("/tower.sav", FILE_READ);
-    if (!file) return false;
-
-    size_t expected_size = sizeof(SaveData) + MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int);
-    if (file.size() != expected_size) {
-        file.close();
-        return false;
-    }
+    tower_prefs.begin("tower", true);
+    if (!tower_prefs.isKey("hero")) { tower_prefs.end(); return false; }
 
     if (map_data == NULL) {
         map_data = (int (*)[MAP_SIZE][MAP_SIZE])malloc(
             MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
     }
 
-    if (map_data != NULL) {
-        memset(map_data, 0, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
-    } else {
+    if (map_data == NULL) {
         Serial.println("FATAL: Map memory allocation failed in load_tower_game!");
-        file.close();
+        tower_prefs.end();
         return false;
     }
+    memset(map_data, 0, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
 
     SaveData save;
-    size_t read1 = file.read((uint8_t*)&save, sizeof(save));
-    size_t read2 = file.read((uint8_t*)map_data, MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int));
-    file.close();
-
-    if (read1 != sizeof(save) || read2 != MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int)) {
-        Serial.println("存档文件读取不完整，可能已损坏");
-        return false;
+    tower_prefs.getBytes("hero", &save, sizeof(save));
+    
+    // 分块读取地图数据
+    size_t total_map_size = MAX_FLOOR * MAP_SIZE * MAP_SIZE * sizeof(int);
+    size_t chunk_size = 4096;
+    uint8_t* map_ptr = (uint8_t*)map_data;
+    for (size_t offset = 0; offset < total_map_size; offset += chunk_size) {
+        size_t remaining = total_map_size - offset;
+        size_t this_chunk = remaining < chunk_size ? remaining : chunk_size;
+        char key[16];
+        snprintf(key, sizeof(key), "map_%lu", (unsigned long)(offset / chunk_size));
+        if (!tower_prefs.isKey(key)) break;
+        tower_prefs.getBytes(key, map_ptr + offset, this_chunk);
     }
+    
+    tower_prefs.end();
 
     hero = save.hero;
     current_floor = save.current_floor;
@@ -1255,6 +1255,16 @@ void build_tower_scene() {
             free(map_data);
             map_data = NULL;
         }
+        if (walk_timer != NULL) {
+            lv_timer_del(walk_timer);
+            walk_timer = NULL;
+        }
+        map_cont = NULL;
+        label_stats = NULL;
+        sys_modal = NULL;
+        shop_modal = NULL;
+        msg_modal = NULL;
+        lbl_msg_text = NULL;
     }, LV_EVENT_DELETE, NULL);
 
     walk_timer = lv_timer_create(walk_timer_cb, 80, NULL);

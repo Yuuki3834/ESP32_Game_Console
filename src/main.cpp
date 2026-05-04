@@ -4,7 +4,6 @@
 #include <Wire.h>
 #include <TFT_eSPI.h>
 #include <SD_MMC.h>
-#include <LittleFS.h>
 #include <esp_heap_caps.h>
 #include "global.h"
 
@@ -173,8 +172,6 @@ void setup() {
     SD_MMC.setPins(38, 40, 39, 41, 48, 47);
     if (!SD_MMC.begin("/sdcard", true)) Serial.println("SD卡挂载失败!");
 
-    if (!LittleFS.begin(true)) Serial.println("LittleFS 挂载失败!");
-
     // 音频功放初始化
     pinMode(AMP_EN, OUTPUT);
     digitalWrite(AMP_EN, LOW);
@@ -230,6 +227,9 @@ void setup() {
     // 构建并加载主菜单
     build_main_menu();
     lv_scr_load(scr_menu);
+    
+    // 初始化Web控制（WiFi AP模式）
+    initWebLEDControl();
 }
 
 // Arduino主循环函数
@@ -237,4 +237,7 @@ void loop() {
     uint32_t time_till_next = lv_timer_handler();
     if(time_till_next < 5) time_till_next = 5;
     delay(time_till_next);
+    
+    // 处理Web控制请求
+    webLEDControlLoop();
 }

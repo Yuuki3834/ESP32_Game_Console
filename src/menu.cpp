@@ -18,14 +18,14 @@ void build_main_menu() {
     lv_obj_set_style_line_width(line, 2, 0);
 
     lv_obj_t * btn_container = lv_obj_create(scr_menu);
-    lv_obj_set_size(btn_container, 240, 280);
-    lv_obj_align(btn_container, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_size(btn_container, 240, 380);
+    lv_obj_align(btn_container, LV_ALIGN_TOP_MID, 0, 50);
     lv_obj_set_style_bg_opa(btn_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(btn_container, 0, 0);
     lv_obj_set_flex_flow(btn_container, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(btn_container, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_obj_set_style_pad_row(btn_container, 12, 0);
-    lv_obj_set_style_pad_top(btn_container, 10, 0);
+    lv_obj_set_style_pad_row(btn_container, 10, 0);
+    lv_obj_set_style_pad_top(btn_container, 5, 0);
 
     auto create_menu_btn = [&](const char* txt, lv_event_cb_t cb) {
         lv_obj_t * btn = lv_btn_create(btn_container);
@@ -72,6 +72,14 @@ void build_main_menu() {
             if (!load_tower_game()) reset_tower_game();
         }
         lv_scr_load_anim(scr_tower, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
+    });
+
+    create_menu_btn(LV_SYMBOL_PLUS "  2048", [](lv_event_t *e){
+        if (scr_2048 == NULL) build_2048_scene();
+        if (!is_2048_started) {
+            if (!load_2048_game()) reset_2048_game();
+        }
+        lv_scr_load_anim(scr_2048, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
     });
 
     create_menu_btn(LV_SYMBOL_TINT "  RGB 氛围灯", [](lv_event_t *e){
