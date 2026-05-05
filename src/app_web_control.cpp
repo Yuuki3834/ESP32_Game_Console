@@ -4,6 +4,8 @@
 #include <DNSServer.h>
 #include <esp_task_wdt.h>
 #include <Adafruit_NeoPixel.h>
+#include <SD_MMC.h>
+#include <FS.h>
 
 // ==================== WiFi配置 ====================
 #define WIFI_SSID "wwd2"
@@ -387,6 +389,14 @@ body {
   </div>
 </div>
 
+<!-- 天气时钟配网入口 -->
+<div class="section" style="margin-top:20px;border:2px dashed rgba(255,212,59,0.3)">
+  <div class="section-title" style="color:#ffd43b">🌤 天气时钟</div>
+  <div style="text-align:center;padding:8px">
+    <a href="/weather" style="padding:12px 24px;border-radius:10px;border:2px solid #ffd43b;background:rgba(255,212,59,0.1);color:#ffd43b;font-size:14px;text-decoration:none;display:inline-block">WiFi配置</a>
+  </div>
+</div>
+
 <!-- 游戏选择入口 -->
 <div class="section" style="margin-top:20px;border:2px dashed rgba(81,207,102,0.3)">
   <div class="section-title" style="color:#51cf66">🎮 网页游戏控制</div>
@@ -765,9 +775,17 @@ updateStatus();
 static void initWiFiAP() {
   Serial.println("[WiFi] 启动AP模式...");
   
-  // 配置AP
+  // 【关键修复】确保模式为 AP+STA
+  WiFi.mode(WIFI_AP_STA);
+  
+  // 【改进】只断开 STA 连接，不清除 NVS 中保存的 WiFi 信息
+  // 使用 false, false 避免擦除存储的凭证，防止与天气时钟的 STA 重连流程冲突
+  WiFi.disconnect(false, false);
+  delay(100);
+  
+  // 配置AP，强制指定信道为 6（避免默认信道跳变）
   WiFi.softAPConfig(WIFI_AP_IP, WIFI_GATEWAY, WIFI_SUBNET);
-  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD);
+  WiFi.softAP(WIFI_SSID, WIFI_PASSWORD, 6, 0, 4);
   
   delay(200);
   
@@ -1056,6 +1074,12 @@ static void handleNotFound() {
   handleCaptivePortal();
 }
 
+// ==================== 天气时钟配网处理函数声明 ====================
+static void handleWeatherConfig();
+static void handleWeatherScan();
+static void handleWeatherSaveConfig();
+static void handleWeatherStatus();
+
 // ==================== 初始化Web控制 ====================
 void initWebLEDControl() {
   if (webControlInitialized) return;
@@ -1082,7 +1106,13 @@ void initWebLEDControl() {
   server.on("/cmd/game", handleGameCommand);
   server.on("/cmd/tower", handleTowerCommand);
   server.on("/cmd/2048", handle2048Command);
-    
+  
+  // 天气时钟配网路由
+  server.on("/weather", handleWeatherConfig);
+  server.on("/cmd/weather/scan", handleWeatherScan);
+  server.on("/cmd/weather/config", handleWeatherSaveConfig);
+  server.on("/cmd/weather/status", handleWeatherStatus);
+     
   // 启动服务器
   server.begin();
   server.onNotFound(handleNotFound);
@@ -1099,3 +1129,743 @@ void webLEDControlLoop() {
   server.handleClient();
 }
 
+// ==================== 天气时钟配网页面 ====================
+static const char WEATHER_CONFIG_PAGE[] PROGMEM = R"rawlcd(
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>天气时钟 - WiFi配置</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  background: linear-gradient(135deg, #0a0a1a 0%, #1a1a3e 50%, #0a0a1a 100%);
+  color: #e0e0e0;
+  min-height: 100vh;
+  padding: 16px;
+}
+.header {
+  text-align: center;
+  padding: 16px 0 12px;
+  font-size: 20px;
+  font-weight: 700;
+  color: #51cf66;
+}
+.back-btn {
+  display: inline-block;
+  padding: 8px 16px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  border: 2px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05);
+  color: #ccc;
+  font-size: 14px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.section {
+  background: rgba(255,255,255,0.05);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 16px;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #888;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.form-group {
+  margin-bottom: 12px;
+}
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: #aaa;
+  margin-bottom: 6px;
+}
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(0,0,0,0.3);
+  color: #fff;
+  font-size: 14px;
+}
+.form-group input:focus {
+  outline: none;
+  border-color: #51cf66;
+}
+.wifi-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+.wifi-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  background: rgba(0,0,0,0.2);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.wifi-item:hover, .wifi-item.selected {
+  background: rgba(81,207,102,0.15);
+  border: 1px solid rgba(81,207,102,0.3);
+}
+.wifi-item .ssid {
+  font-size: 14px;
+  color: #fff;
+}
+.wifi-item .signal {
+  font-size: 12px;
+  color: #888;
+}
+.btn {
+  width: 100%;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-primary {
+  background: linear-gradient(135deg, #51cf66, #27ae60);
+  color: #fff;
+}
+.btn-primary:active {
+  transform: scale(0.98);
+}
+.btn-secondary {
+  background: rgba(255,255,255,0.1);
+  color: #ccc;
+  margin-top: 10px;
+}
+.status {
+  text-align: center;
+  padding: 12px;
+  border-radius: 10px;
+  margin-top: 12px;
+  font-size: 14px;
+  display: none;
+}
+.status.success { background: rgba(81,207,102,0.2); color: #51cf66; display: block; }
+.status.error { background: rgba(255,107,107,0.2); color: #ff6b6b; display: block; }
+.status.loading { background: rgba(255,212,59,0.2); color: #ffd43b; display: block; }
+.btn-locate {
+  background: linear-gradient(135deg, #339af0, #2980b9);
+  color: #fff;
+  margin-top: 8px;
+  padding: 10px;
+  font-size: 14px;
+}
+.locate-status {
+  text-align: center;
+  padding: 8px;
+  font-size: 13px;
+  color: #888;
+  display: none;
+}
+.locate-status.active { display: block; color: #ffd43b; }
+.locate-status.success { display: block; color: #51cf66; }
+.locate-status.fail { display: block; color: #ff6b6b; }
+</style>
+</head>
+<body>
+<a href="/" class="back-btn">← 返回</a>
+<div class="header">🌤 天气时钟 - WiFi配置</div>
+
+<div class="section">
+  <div class="section-title">📡 扫描WiFi网络</div>
+  <button class="btn btn-secondary" onclick="scanWiFi()" id="scanBtn">扫描网络</button>
+  <div class="wifi-list" id="wifiList" style="margin-top:12px"></div>
+</div>
+
+<div class="section">
+  <div class="section-title">⚙️ 手动配置</div>
+  <div class="form-group">
+    <label>WiFi名称 (SSID)</label>
+    <input type="text" id="ssid" placeholder="输入WiFi名称">
+  </div>
+  <div class="form-group">
+    <label>WiFi密码</label>
+    <input type="password" id="password" placeholder="输入WiFi密码">
+  </div>
+  <div class="form-group">
+    <label>城市 (用于天气)</label>
+    <select id="city" onchange="onCityChange()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #444;background:#2a2a3a;color:#fff;font-size:14px">
+      <option value="101010100">北京</option>
+      <option value="101020100">上海</option>
+      <option value="101030100">天津</option>
+      <option value="101040100">重庆</option>
+      <option value="101100101">太原</option>
+      <option value="101090101">石家庄</option>
+      <option value="101080101">呼和浩特</option>
+      <option value="101070101">沈阳</option>
+      <option value="101060101">长春</option>
+      <option value="101050101">哈尔滨</option>
+      <option value="101190101">南京</option>
+      <option value="101210101">杭州</option>
+      <option value="101220101">合肥</option>
+      <option value="101230101">福州</option>
+      <option value="101240101">南昌</option>
+      <option value="101120101">济南</option>
+      <option value="101180101">郑州</option>
+      <option value="101200101">武汉</option>
+      <option value="101250101">长沙</option>
+      <option value="101280101">广州</option>
+      <option value="101300101">南宁</option>
+      <option value="101310101">海口</option>
+      <option value="101270101">成都</option>
+      <option value="101260101">贵阳</option>
+      <option value="101290101">昆明</option>
+      <option value="101140101">拉萨</option>
+      <option value="101110101">西安</option>
+      <option value="101160101">兰州</option>
+      <option value="101150101">西宁</option>
+      <option value="101170101">银川</option>
+      <option value="101130101">乌鲁木齐</option>
+      <option value="101320101">香港</option>
+      <option value="101330101">澳门</option>
+      <option value="101340101">台北</option>
+      <option value="101280601">深圳</option>
+      <option value="101280701">珠海</option>
+      <option value="101280800">佛山</option>
+      <option value="101281601">东莞</option>
+      <option value="101281701">中山</option>
+      <option value="101280501">汕头</option>
+      <option value="101281001">湛江</option>
+      <option value="101280201">韶关</option>
+      <option value="101280401">梅州</option>
+      <option value="101280301">惠州</option>
+      <option value="101280901">肇庆</option>
+      <option value="101281101">江门</option>
+      <option value="101281201">河源</option>
+      <option value="101281301">清远</option>
+      <option value="101281401">云浮</option>
+      <option value="101281501">潮州</option>
+      <option value="101281801">阳江</option>
+      <option value="101281901">揭阳</option>
+      <option value="101282001">茂名</option>
+      <option value="101282101">汕尾</option>
+      <option value="101210401">宁波</option>
+      <option value="101210201">湖州</option>
+      <option value="101210301">嘉兴</option>
+      <option value="101210501">绍兴</option>
+      <option value="101210601">台州</option>
+      <option value="101210701">温州</option>
+      <option value="101210801">丽水</option>
+      <option value="101210901">金华</option>
+      <option value="101211001">衢州</option>
+      <option value="101211101">舟山</option>
+      <option value="101190201">无锡</option>
+      <option value="101190301">镇江</option>
+      <option value="101190401">苏州</option>
+      <option value="101190501">南通</option>
+      <option value="101190601">扬州</option>
+      <option value="101190701">盐城</option>
+      <option value="101190801">徐州</option>
+      <option value="101190901">淮安</option>
+      <option value="101191001">连云港</option>
+      <option value="101191101">常州</option>
+      <option value="101191201">泰州</option>
+      <option value="101191301">宿迁</option>
+      <option value="101120201">青岛</option>
+      <option value="101120301">淄博</option>
+      <option value="101120401">德州</option>
+      <option value="101120501">烟台</option>
+      <option value="101120601">潍坊</option>
+      <option value="101120701">济宁</option>
+      <option value="101120801">泰安</option>
+      <option value="101120901">临沂</option>
+      <option value="101121001">菏泽</option>
+      <option value="101121101">滨州</option>
+      <option value="101121201">东营</option>
+      <option value="101121301">威海</option>
+      <option value="101121401">枣庄</option>
+      <option value="101121501">日照</option>
+      <option value="101121701">聊城</option>
+      <option value="101180201">安阳</option>
+      <option value="101180301">新乡</option>
+      <option value="101180401">许昌</option>
+      <option value="101180501">平顶山</option>
+      <option value="101180601">信阳</option>
+      <option value="101180701">南阳</option>
+      <option value="101180801">开封</option>
+      <option value="101180901">洛阳</option>
+      <option value="101181001">商丘</option>
+      <option value="101181101">焦作</option>
+      <option value="101181201">鹤壁</option>
+      <option value="101181301">濮阳</option>
+      <option value="101181401">周口</option>
+      <option value="101181501">漯河</option>
+      <option value="101181601">驻马店</option>
+      <option value="101181701">三门峡</option>
+      <option value="101200201">襄阳</option>
+      <option value="101200301">鄂州</option>
+      <option value="101200401">孝感</option>
+      <option value="101200501">黄冈</option>
+      <option value="101200601">黄石</option>
+      <option value="101200701">咸宁</option>
+      <option value="101200801">荆州</option>
+      <option value="101200901">宜昌</option>
+      <option value="101201001">恩施</option>
+      <option value="101201101">十堰</option>
+      <option value="101201301">随州</option>
+      <option value="101201401">荆门</option>
+      <option value="101250201">湘潭</option>
+      <option value="101250301">株洲</option>
+      <option value="101250401">衡阳</option>
+      <option value="101250501">郴州</option>
+      <option value="101250601">常德</option>
+      <option value="101250701">益阳</option>
+      <option value="101250801">娄底</option>
+      <option value="101250901">邵阳</option>
+      <option value="101251001">岳阳</option>
+      <option value="101251101">张家界</option>
+      <option value="101251201">怀化</option>
+      <option value="101270201">攀枝花</option>
+      <option value="101270301">自贡</option>
+      <option value="101270401">绵阳</option>
+      <option value="101270501">南充</option>
+      <option value="101270601">达州</option>
+      <option value="101271001">泸州</option>
+      <option value="101271101">宜宾</option>
+      <option value="101271201">内江</option>
+      <option value="101271401">乐山</option>
+      <option value="101271501">眉山</option>
+      <option value="101272001">德阳</option>
+      <option value="101272101">广元</option>
+      <option value="101090201">保定</option>
+      <option value="101090301">张家口</option>
+      <option value="101090401">承德</option>
+      <option value="101090501">唐山</option>
+      <option value="101090601">廊坊</option>
+      <option value="101090701">沧州</option>
+      <option value="101090801">衡水</option>
+      <option value="101090901">邢台</option>
+      <option value="101091001">邯郸</option>
+      <option value="101091101">秦皇岛</option>
+      <option value="101070201">大连</option>
+      <option value="101070301">鞍山</option>
+      <option value="101070401">抚顺</option>
+      <option value="101070501">本溪</option>
+      <option value="101070601">丹东</option>
+      <option value="101070701">锦州</option>
+      <option value="101070801">营口</option>
+      <option value="101071301">盘锦</option>
+      <option value="101071401">葫芦岛</option>
+      <option value="101100201">大同</option>
+      <option value="101100301">阳泉</option>
+      <option value="101100401">晋中</option>
+      <option value="101100501">长治</option>
+      <option value="101100601">晋城</option>
+      <option value="101100701">临汾</option>
+      <option value="101100801">运城</option>
+      <option value="101100901">朔州</option>
+      <option value="101101001">忻州</option>
+      <option value="101101100">吕梁</option>
+      <option value="101110201">咸阳</option>
+      <option value="101110300">延安</option>
+      <option value="101110401">榆林</option>
+      <option value="101110501">渭南</option>
+      <option value="101110701">安康</option>
+      <option value="101110801">汉中</option>
+      <option value="101110901">宝鸡</option>
+      <option value="101160201">定西</option>
+      <option value="101160301">平凉</option>
+      <option value="101160401">庆阳</option>
+      <option value="101160501">武威</option>
+      <option value="101160701">张掖</option>
+      <option value="101160801">酒泉</option>
+      <option value="101160901">天水</option>
+      <option value="101161301">白银</option>
+      <option value="101161401">嘉峪关</option>
+      <option value="101230201">厦门</option>
+      <option value="101230301">宁德</option>
+      <option value="101230401">莆田</option>
+      <option value="101230501">泉州</option>
+      <option value="101230601">漳州</option>
+      <option value="101230701">龙岩</option>
+      <option value="101230801">三明</option>
+      <option value="101230901">南平</option>
+      <option value="101220201">蚌埠</option>
+      <option value="101220301">芜湖</option>
+      <option value="101220401">淮南</option>
+      <option value="101220501">马鞍山</option>
+      <option value="101220601">安庆</option>
+      <option value="101220701">宿州</option>
+      <option value="101220801">阜阳</option>
+      <option value="101220901">亳州</option>
+      <option value="101221001">黄山</option>
+      <option value="101221101">滁州</option>
+      <option value="101221201">淮北</option>
+      <option value="101221301">铜陵</option>
+      <option value="101221401">宣城</option>
+      <option value="101221501">六安</option>
+      <option value="101221701">池州</option>
+      <option value="101240201">九江</option>
+      <option value="101240301">上饶</option>
+      <option value="101240401">抚州</option>
+      <option value="101240501">宜春</option>
+      <option value="101240601">吉安</option>
+      <option value="101240701">赣州</option>
+      <option value="101240801">景德镇</option>
+      <option value="101300301">柳州</option>
+      <option value="101300501">桂林</option>
+      <option value="101300601">梧州</option>
+      <option value="101300801">贵港</option>
+      <option value="101300901">玉林</option>
+      <option value="101301001">百色</option>
+      <option value="101301101">钦州</option>
+      <option value="101301301">北海</option>
+      <option value="101290201">大理</option>
+      <option value="101290401">曲靖</option>
+      <option value="101290501">保山</option>
+      <option value="101290701">玉溪</option>
+      <option value="101291401">丽江</option>
+      <option value="101260201">遵义</option>
+      <option value="101260301">安顺</option>
+      <option value="101260601">铜仁</option>
+      <option value="101260701">毕节</option>
+      <option value="101260801">六盘水</option>
+      <option value="101310201">三亚</option>
+      <option value="101310211">琼海</option>
+      <option value="101310205">儋州</option>
+      <option value="101050201">齐齐哈尔</option>
+      <option value="101050301">牡丹江</option>
+      <option value="101050401">佳木斯</option>
+      <option value="101050901">大庆</option>
+      <option value="101060201">吉林市</option>
+      <option value="101060401">四平</option>
+      <option value="101060501">通化</option>
+      <option value="101080201">包头</option>
+      <option value="101080501">通辽</option>
+      <option value="101080601">赤峰</option>
+      <option value="101080701">鄂尔多斯</option>
+      <option value="101130201">克拉玛依</option>
+      <option value="101130301">石河子</option>
+      <option value="101130901">喀什</option>
+      <option value="custom">自定义LocationID...</option>
+    </select>
+    <input type="text" id="cityCustom" placeholder="输入和风LocationID（如101010100）" style="display:none;margin-top:8px;width:100%;padding:10px;border-radius:8px;border:1px solid #444;background:#2a2a3a;color:#fff;font-size:14px">
+    <button class="btn btn-locate" onclick="autoLocate()" id="locateBtn">📍 根据网络自动定位</button>
+    <div class="locate-status" id="locateStatus"></div>
+  </div>
+  <div class="form-group">
+    <label>和风天气 API Key</label>
+    <input type="text" id="apiKey" placeholder="输入API Key" value="">
+  </div>
+</div>
+
+<div class="section">
+  <button class="btn btn-primary" onclick="saveConfig()">💾 保存并测试连接</button>
+  <div class="status" id="status"></div>
+</div>
+
+<script>
+let selectedSsid = '';
+
+// [FIX 3] 城市选择下拉框处理函数
+function onCityChange() {
+  const citySelect = document.getElementById('city');
+  const cityCustom = document.getElementById('cityCustom');
+  if (citySelect.value === 'custom') {
+    cityCustom.style.display = 'block';
+    cityCustom.focus();
+  } else {
+    cityCustom.style.display = 'none';
+  }
+}
+
+// 城市名 → LocationID 映射字典
+const CITY_TO_LOCATIONID = {
+  'beijing': '101010100', 'bj': '101010100',
+  'shanghai': '101020100', 'sh': '101020100',
+  'guangzhou': '101280101', 'gz': '101280101',
+  'shenzhen': '101280601', 'sz': '101280601',
+  'hangzhou': '101210101', 'hz': '101210101',
+  'chengdu': '101270101', 'cd': '101270101',
+  'wuhan': '101200101', 'wh': '101200101',
+  'nanjing': '101190101', 'nj': '101190101',
+  'chongqing': '101040100', 'cq': '101040100',
+  'xian': '101110101', "xi'an": '101110101',
+  'tianjin': '101030100', 'tj': '101030100'
+};
+
+function getCityValue() {
+  const citySelect = document.getElementById('city');
+  const cityCustom = document.getElementById('cityCustom');
+  if (citySelect.value === 'custom') {
+    let val = (cityCustom.value || '').trim().toLowerCase();
+    // 如果输入的是城市名，尝试映射成 LocationID
+    if (CITY_TO_LOCATIONID[val]) return CITY_TO_LOCATIONID[val];
+    return val || '101010100';
+  }
+  return citySelect.value;
+}
+
+function autoLocate() {
+  const locateBtn = document.getElementById('locateBtn');
+  const locateStatus = document.getElementById('locateStatus');
+
+  locateBtn.disabled = true;
+  locateBtn.textContent = '📍 正在定位...';
+  locateStatus.className = 'locate-status active';
+  locateStatus.textContent = '正在通过网络获取位置信息...';
+
+  // Use ip-api.com for geolocation (free, no key needed)
+  fetch('http://ip-api.com/json/?fields=city,regionName,country,status')
+    .then(r => r.json())
+    .then(data => {
+      locateBtn.disabled = false;
+      locateBtn.textContent = '📍 根据网络自动定位';
+    
+      if (data.status === 'success' && data.city) {
+        const cityLower = data.city.toLowerCase();
+        const citySelect = document.getElementById('city');
+        const cityCustom = document.getElementById('cityCustom');
+      
+        // 尝试通过字典映射成 LocationID
+        const locationId = CITY_TO_LOCATIONID[cityLower];
+        if (locationId) {
+          // 尝试匹配下拉框选项
+          let matched = false;
+          for (let i = 0; i < citySelect.options.length; i++) {
+            if (citySelect.options[i].value === locationId) {
+              citySelect.selectedIndex = i;
+              cityCustom.style.display = 'none';
+              matched = true;
+              break;
+            }
+          }
+          if (!matched) {
+            citySelect.value = 'custom';
+            cityCustom.style.display = 'block';
+            cityCustom.value = locationId;
+          }
+        } else {
+          // 无法映射，让用户手动输入
+          citySelect.value = 'custom';
+          cityCustom.style.display = 'block';
+          cityCustom.value = cityLower;
+        }
+      
+        locateStatus.className = 'locate-status success';
+        locateStatus.textContent = '✓ 定位成功: ' + data.city + ', ' + (data.regionName || '') + ', ' + (data.country || '');
+      } else {
+        locateStatus.className = 'locate-status fail';
+        locateStatus.textContent = '✗ 定位失败，请手动选择城市';
+      }
+    })
+    .catch(e => {
+      locateBtn.disabled = false;
+      locateBtn.textContent = '📍 根据网络自动定位';
+    
+      // Fallback: try ipinfo.io
+      fetch('https://ipinfo.io/json')
+        .then(r => r.json())
+        .then(data => {
+          if (data.city) {
+            const cityLower = data.city.toLowerCase();
+            const citySelect = document.getElementById('city');
+            const cityCustom = document.getElementById('cityCustom');
+          
+            // 尝试通过字典映射成 LocationID
+            const locationId = CITY_TO_LOCATIONID[cityLower];
+            if (locationId) {
+              let matched = false;
+              for (let i = 0; i < citySelect.options.length; i++) {
+                if (citySelect.options[i].value === locationId) {
+                  citySelect.selectedIndex = i;
+                  cityCustom.style.display = 'none';
+                  matched = true;
+                  break;
+                }
+              }
+              if (!matched) {
+                citySelect.value = 'custom';
+                cityCustom.style.display = 'block';
+                cityCustom.value = locationId;
+              }
+            } else {
+              citySelect.value = 'custom';
+              cityCustom.style.display = 'block';
+              cityCustom.value = cityLower;
+            }
+          
+            locateStatus.className = 'locate-status success';
+            locateStatus.textContent = '✓ 定位成功: ' + data.city + ', ' + (data.region || '');
+          } else {
+            locateStatus.className = 'locate-status fail';
+            locateStatus.textContent = '✗ 定位失败，请手动选择城市';
+          }
+        })
+        .catch(e2 => {
+          locateStatus.className = 'locate-status fail';
+          locateStatus.textContent = '✗ 无法连接定位服务（需要设备连接外网）';
+        });
+    });
+}
+
+function scanWiFi() {
+  const btn = document.getElementById('scanBtn');
+  const list = document.getElementById('wifiList');
+  btn.textContent = '扫描中...';
+  btn.disabled = true;
+  list.innerHTML = '<div style="text-align:center;color:#888;padding:20px">正在扫描WiFi网络...</div>';
+  
+  fetch('/cmd/weather/scan')
+    .then(r => r.json())
+    .then(data => {
+      btn.textContent = '重新扫描';
+      btn.disabled = false;
+      
+      if (data.wifi && data.wifi.length > 0) {
+        list.innerHTML = '';
+        data.wifi.forEach(w => {
+          const item = document.createElement('div');
+          item.className = 'wifi-item';
+          item.innerHTML = '<span class="ssid">📶 ' + w.ssid + '</span>' +
+                           '<span class="signal">' + w.rssi + 'dBm</span>';
+          item.onclick = () => selectWifi(w.ssid, item);
+          list.appendChild(item);
+        });
+      } else {
+        list.innerHTML = '<div style="text-align:center;color:#888;padding:20px">未找到WiFi网络</div>';
+      }
+    })
+    .catch(e => {
+      btn.textContent = '扫描失败，重试';
+      btn.disabled = false;
+      list.innerHTML = '<div style="text-align:center;color:#ff6b6b;padding:20px">扫描失败</div>';
+    });
+}
+
+function selectWifi(ssid, elem) {
+  selectedSsid = ssid;
+  document.getElementById('ssid').value = ssid;
+  document.querySelectorAll('.wifi-item').forEach(i => i.classList.remove('selected'));
+  elem.classList.add('selected');
+}
+
+function saveConfig() {
+  const ssid = document.getElementById('ssid').value;
+  const password = document.getElementById('password').value;
+  const city = getCityValue();
+  const apiKey = document.getElementById('apiKey').value;
+  const status = document.getElementById('status');
+
+  if (!ssid) {
+    status.className = 'status error';
+    status.textContent = '请输入WiFi名称';
+    return;
+  }
+
+  status.className = 'status loading';
+  status.textContent = '正在保存配置...';
+
+  fetch('/cmd/weather/config?ssid=' + encodeURIComponent(ssid) +
+      '&password=' + encodeURIComponent(password) +
+      '&city=' + encodeURIComponent(city) +
+      '&apiKey=' + encodeURIComponent(apiKey))
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        status.className = 'status success';
+        status.innerHTML = '✓ ' + data.msg;
+      } else {
+        status.className = 'status error';
+        status.textContent = '✗ 保存失败';
+      }
+    })
+    .catch(e => {
+      status.className = 'status error';
+      status.textContent = '✗ 请求失败';
+    });
+}
+
+// 页面加载时自动扫描
+window.onload = () => scanWiFi();
+</script>
+</body>
+</html>
+)rawlcd";
+
+// ==================== WiFi扫描结果缓存 ====================
+// 移除未使用的变量
+
+// ==================== 天气时钟配网处理函数 ====================
+// 天气时钟默认API Key
+#define WEATHER_API_KEY_DEFAULT "9241d28c048d40ee87c997c8f13c6df6"
+
+
+static void handleWeatherConfig() {
+  String html = WEATHER_CONFIG_PAGE;
+  // 自动填入默认 API Key
+  html.replace("value=\"\"", "value=\"" WEATHER_API_KEY_DEFAULT "\"");
+  server.send(200, "text/html", html);
+}
+
+static void handleWeatherScan() {
+  // 网页端使用同步扫描最稳定
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.scanDelete();
+  
+  // 同步扫描，等待扫描完成
+  int wifi = WiFi.scanNetworks(false, false, false, 300);
+  String json = "{\"wifi\":[";
+  for (int i = 0; i < wifi && i < 20; i++) {
+    if (i > 0) json += ",";
+    String ssid = WiFi.SSID(i);
+    ssid.replace("\\", "\\\\");
+    ssid.replace("\"", "\\\"");
+    json += "{\"ssid\":\"" + ssid + "\",";
+    json += "\"rssi\":" + String(WiFi.RSSI(i));
+    json += ",\"encrypted\":" + String(WiFi.encryptionType(i)) + "}";
+  }
+  json += "]}";
+  WiFi.scanDelete();
+  server.send(200, "application/json", json);
+}
+
+static void handleWeatherSaveConfig() {
+  String ssid = server.arg("ssid");
+  String password = server.arg("password");
+  String city = server.arg("city");
+  String apiKey = server.arg("apiKey");
+  if (apiKey.length() < 5) apiKey = WEATHER_API_KEY_DEFAULT;
+
+  update_weather_config_from_web(ssid.c_str(), password.c_str(), city.c_str(), apiKey.c_str());
+
+  // 【关键修复5】不再在此处发起后台 WiFi 连接！避免由于 AP 信道跳变瞬间踢掉手机，同时避免与屏幕任务互相打架抢夺底层硬件。
+  String json = "{";
+  json += "\"ok\":true";
+  json += ",\"saved\":true";
+  json += ",\"msg\":\"配置已保存，请在设备屏幕上点击【确定】连接\"";
+  json += "}";
+  server.send(200, "application/json", json);
+}
+
+// WiFi连接状态查询接口（简化版，仅返回当前 STA 连接状态）
+static void handleWeatherStatus() {
+  String json = "{";
+  json += "\"status\":\"idle\"";
+  json += ",\"connected\":" + String(WiFi.isConnected() ? "true" : "false");
+  if (WiFi.isConnected()) {
+    json += ",\"ip\":\"" + WiFi.localIP().toString() + "\"";
+  }
+  json += "}";
+  server.send(200, "application/json", json);
+}

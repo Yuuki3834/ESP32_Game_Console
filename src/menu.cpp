@@ -96,4 +96,8 @@ void build_main_menu() {
         if (scr_reader == NULL) build_reader_scene();
         lv_scr_load_anim(scr_reader, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
     });
+
+    create_menu_btn(LV_SYMBOL_EYE_OPEN "  天气时钟", [](lv_event_t *e){
+        build_weather_clock_scene();
+    });
 }

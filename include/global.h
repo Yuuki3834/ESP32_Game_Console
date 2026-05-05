@@ -215,6 +215,9 @@ extern bool is_2048_started;
 // SD 卡互斥锁
 extern SemaphoreHandle_t sd_mutex;
 
+// 横屏模式开关（定义于 main.cpp）
+extern volatile bool g_landscape_mode;
+
 // ==================== 字体声明 ====================
 LV_FONT_DECLARE(my_font_cn_16);
 
@@ -300,5 +303,10 @@ void open_tavern_bounty_board();
 // --- Web控制相关函数 ---
 void initWebLEDControl();
 void webLEDControlLoop();
+
+// --- 天气时钟相关函数 ---
+void build_weather_clock_scene();
+void refresh_weather_clock_ui();
+void update_weather_config_from_web(const char* ssid, const char* pwd, const char* city, const char* api);
 
 #endif
